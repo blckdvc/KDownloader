@@ -1,0 +1,9 @@
+# Rust / Tauri build output
+/src-tauri/target/
+
+# macOS
+.DS_Store
+
+# Editor
+*.swp
+*.rs.bk
