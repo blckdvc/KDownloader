@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pulsar</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="toolbar">
+      <div class="brand">
+        <span class="logo" aria-hidden="true"></span>
+        <h1>Pulsar</h1>
+      </div>
+      <form id="add-form" class="add">
+        <input id="magnet" type="text" placeholder="Paste a magnet link or http(s) .torrent URL…" autocomplete="off" spellcheck="false" />
+        <button type="submit" class="primary">Add</button>
+        <label class="file-btn" title="Add a .torrent file">
+          <input id="file" type="file" accept=".torrent" hidden />
+          <span>.torrent…</span>
+        </label>
+        <button type="button" id="opts-toggle" class="ghost" title="Add options">Options ▾</button>
+        <button type="button" id="settings-btn" class="ghost icon" title="Settings">⚙</button>
+      </form>
+    </header>
+
+    <!-- Add options (collapsed by default) -->
+    <section id="opts" class="opts" hidden>
+      <label>Category <input id="o-category" type="text" placeholder="e.g. linux" /></label>
+      <label>Save to
+        <span class="withbtn">
+          <input id="o-savepath" type="text" placeholder="(default folder)" />
+          <button type="button" class="ghost browse" data-target="o-savepath">Browse…</button>
+        </span>
+      </label>
+      <label>↓ KiB/s <input id="o-down" type="number" min="0" value="0" /></label>
+      <label>↑ KiB/s <input id="o-up" type="number" min="0" value="0" /></label>
+      <label class="chk"><input id="o-paused" type="checkbox" /> Start paused</label>
+    </section>
+
+    <div class="subbar">
+      <label class="filter">Filter
+        <select id="cat-filter"><option value="">All categories</option></select>
+      </label>
+    </div>
+
+    <div id="error" class="error" hidden></div>
+
+    <main id="list" class="list" aria-live="polite"></main>
+
+    <div id="empty" class="empty">
+      <p>No torrents yet.</p>
+      <p class="muted">Paste a magnet link above, or add a <code>.torrent</code> file.</p>
+    </div>
+
+    <footer class="statusbar">
+      <span id="count">0 torrents</span>
+      <span class="spacer"></span>
+      <span id="limits-badge" class="muted"></span>
+      <span id="totals">↓ 0 B/s&nbsp;&nbsp;↑ 0 B/s</span>
+      <button id="reveal" class="link" title="Reveal download folder in Finder">Download folder</button>
+    </footer>
+
+    <!-- Torrent row -->
+    <template id="row-tpl">
+      <article class="row" data-id="">
+        <div class="row-main">
+          <div class="row-head">
+            <span class="name"></span>
+            <span class="badge cat" hidden></span>
+            <span class="badge state"></span>
+          </div>
+          <div class="bar"><div class="bar-fill"></div></div>
+          <div class="meta">
+            <span class="pct"></span><span class="sep">·</span>
+            <span class="size"></span><span class="sep">·</span>
+            <span class="dl">↓ 0 B/s</span><span class="ul">↑ 0 B/s</span>
+            <span class="sep eta-sep">·</span><span class="eta"></span>
+          </div>
+          <div class="row-detail" hidden></div>
+        </div>
+        <div class="row-actions">
+          <button class="files" title="Files & category">▸</button>
+          <button class="toggle" title="Pause / resume"></button>
+          <button class="remove" title="Remove">✕</button>
+        </div>
+      </article>
+    </template>
+
+    <!-- Settings modal -->
+    <div id="modal" class="overlay" hidden>
+      <div class="sheet">
+        <div class="sheet-head">
+          <h2>Settings</h2>
+          <button id="modal-close" class="ghost icon">✕</button>
+        </div>
+        <div class="sheet-body">
+          <section class="group">
+            <h3>Folders</h3>
+            <label>Default download folder
+              <span class="withbtn">
+                <input id="s-downloaddir" type="text" placeholder="(download folder)" />
+                <button type="button" class="ghost browse" data-target="s-downloaddir">Browse…</button>
+              </span>
+            </label>
+            <p class="hint">New torrents download here; per-torrent save paths override it, and existing torrents keep their folder.</p>
+            <label class="chk folders-sub"><input id="s-watch" type="checkbox" /> Watch a folder and auto-add .torrent files</label>
+            <div class="grid2 folders-sub">
+              <label>Watch folder
+                <span class="withbtn">
+                  <input id="s-watchdir" type="text" placeholder="/path/to/watch" />
+                  <button type="button" class="ghost browse" data-target="s-watchdir">Browse…</button>
+                </span>
+              </label>
+              <label>Category for watched <input id="s-watchcat" type="text" placeholder="(optional)" /></label>
+            </div>
+            <p class="hint">Added files move to <code>.pulsar-added</code> inside the watch folder.</p>
+          </section>
+
+          <section class="group">
+            <h3>Speed limits</h3>
+            <div class="grid2">
+              <label>Global download (KiB/s, 0 = ∞) <input id="s-gdown" type="number" min="0" /></label>
+              <label>Global upload (KiB/s, 0 = ∞) <input id="s-gup" type="number" min="0" /></label>
+            </div>
+          </section>
+
+          <section class="group">
+            <h3><label class="chk"><input id="s-sched" type="checkbox" /> Scheduler — use alternate limits during a window</label></h3>
+            <div class="grid4">
+              <label>From <input id="s-from" type="time" /></label>
+              <label>To <input id="s-to" type="time" /></label>
+              <label>Alt ↓ KiB/s <input id="s-adown" type="number" min="0" /></label>
+              <label>Alt ↑ KiB/s <input id="s-aup" type="number" min="0" /></label>
+            </div>
+          </section>
+
+          <section class="group">
+            <h3><label class="chk"><input id="s-rss" type="checkbox" /> RSS auto-download</label></h3>
+            <label>Check every <input id="s-rssint" type="number" min="1" class="narrow" /> minutes</label>
+            <div id="feeds"></div>
+            <button id="add-feed" class="ghost">+ Add feed</button>
+            <p class="hint">Rules are title regexes, one per line; empty = download everything in the feed.</p>
+          </section>
+        </div>
+        <div class="sheet-foot">
+          <button id="modal-cancel" class="ghost">Cancel</button>
+          <button id="modal-save" class="primary">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Remove confirm modal -->
+    <div id="rm-modal" class="overlay" hidden>
+      <div class="sheet small">
+        <div class="sheet-head"><h2>Remove torrent</h2></div>
+        <div class="sheet-body"><p id="rm-name" class="muted"></p></div>
+        <div class="sheet-foot">
+          <button id="rm-cancel" class="ghost">Cancel</button>
+          <button id="rm-keep">Remove, keep files</button>
+          <button id="rm-del" class="danger">Remove + delete files</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="main.js"></script>
+  </body>
+</html>
