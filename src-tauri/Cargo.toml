@@ -15,7 +15,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
-librqbit = "9.0.1"
+librqbit = { version = "9.0.1", features = ["tracing-subscriber-utils"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
@@ -23,6 +23,7 @@ tokio = { version = "1", features = ["time", "fs", "rt", "sync"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "webpki-roots", "charset", "http2"] }
 roxmltree = "0.20"
 regex = "1"
+tracing = "0.1"
 
 [profile.release]
 opt-level = "s"
@@ -30,3 +31,8 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSDictionary", "NSObject", "NSGeometry", "NSArray", "NSEnumerator"] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSResponder", "NSDockTile", "NSImage", "NSImageView", "NSControl", "NSView", "NSColor", "NSFont", "NSGraphics", "NSStringDrawing", "NSAttributedString", "NSCell", "NSBezierPath"] }
