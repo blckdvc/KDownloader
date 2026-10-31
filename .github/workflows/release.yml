@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-14 # Apple Silicon runner (arm64)
+    runs-on: macos-latest # Apple Silicon runner (arm64)
     steps:
       - uses: actions/checkout@v4
 
