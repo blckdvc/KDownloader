@@ -66,9 +66,37 @@ Output lands in `src-tauri/target/release/bundle/`:
 - `macos/Pulsar.app` — the application
 - `dmg/Pulsar_0.1.0_aarch64.dmg` — a drag-to-install disk image
 
-> The build is ad-hoc signed. To distribute to other Macs without Gatekeeper
-> warnings you'd sign with a Developer ID certificate and notarize — not needed
-> for running it yourself.
+> The build is ad-hoc signed. See **Install on macOS** below for why that
+> matters for automatic UPnP, and how to fix it for free.
+
+## Install on macOS
+
+Pulsar is not Apple-notarized, so after you download or build it, do a one-time
+local signing step — otherwise macOS silently blocks the app's **local network**
+access, and automatic **UPnP** port-forwarding (so peers can reach you) won't work.
+
+```sh
+# signs /Applications/Pulsar.app by default; pass a path for another location
+./scripts/pulsar-macos-sign.command
+```
+
+The script creates a **stable, locally-trusted code-signing certificate** (its
+private key is generated on your machine and never leaves it), clears the
+download-quarantine flag, and signs the app. You'll be asked for your macOS login
+password once, to trust the certificate. Then:
+
+1. Launch Pulsar.
+2. **System Settings → Privacy & Security → Local Network → enable Pulsar.**
+
+That's it — UPnP then opens your BitTorrent port automatically, the way other
+clients do, and the permission sticks.
+
+- Undo at any time: `./scripts/pulsar-macos-sign.command --remove`.
+- It works with both the macOS system OpenSSL (LibreSSL) and Homebrew OpenSSL.
+- **Distributing to non-technical users?** Proper **Developer ID signing +
+  notarization** (an Apple Developer account) removes this step entirely — it's
+  the paid, turnkey version of what this script does for free.
+- **Linux / Windows:** no signing needed; UPnP works out of the box.
 
 ## Possible next steps
 
