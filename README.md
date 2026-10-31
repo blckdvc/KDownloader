@@ -21,6 +21,13 @@ small native binary rather than a 150 MB Electron bundle.
 
 ### Not included / known limits
 
+- **Protocol encryption (MSE/PE) is *not supported*** — the `librqbit` engine currently has no
+  message-stream-encryption support, so Pulsar can only talk to peers in **plaintext**. Peers that
+  require/negotiate encryption fail the handshake. This mostly hits **private trackers** (which often
+  mandate encryption): their swarms seed/leech poorly or not at all, while public torrents (with many
+  plaintext peers) work fine. Tracked upstream in
+  [rqbit PR #633 (MSE support)](https://github.com/ikatson/rqbit/pull/633) — once merged and released,
+  bump the `librqbit` dependency to gain it.
 - **Sequential download** is *not available* — the `librqbit` engine has no sequential/streaming-order
   download mode, so this can't be offered honestly. (Per-file selection is the closest supported control.)
 - **Search plugins** (qBittorrent-style site scrapers) are intentionally not bundled: that's a separate
