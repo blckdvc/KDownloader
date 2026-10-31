@@ -1,0 +1,53 @@
+name: Release
+
+# Build Pulsar on macOS and publish a draft GitHub Release with the .dmg/.app
+# and the local-signing helper script attached. Trigger by pushing a version
+# tag (e.g. `git tag v0.1.0 && git push origin v0.1.0`) or run it manually.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14 # Apple Silicon runner (arm64)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # Frontend is plain static files in ui/ (no npm build step needed).
+      - name: Build app + create draft release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Pulsar ${{ github.ref_name }}"
+          releaseBody: |
+            ### Install on macOS
+            1. Mount the `.dmg` and drag **Pulsar** to Applications.
+            2. Download `pulsar-macos-sign.command` (attached below) and run it once:
+               `./pulsar-macos-sign.command`
+               This locally signs the app so macOS lets it use the local network
+               (needed for automatic UPnP port-forwarding). See the README for why.
+            3. Launch Pulsar, then allow it under
+               System Settings → Privacy & Security → Local Network.
+          releaseDraft: true
+          prerelease: false
+
+      - name: Attach the macOS signing script
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            scripts/pulsar-macos-sign.command --clobber
