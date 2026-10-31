@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use librqbit::limits::LimitsConfig;
 use librqbit::{
-    AddTorrent, AddTorrentOptions, AddTorrentResponse, ListenerMode, ListenerOptions, Session,
-    SessionOptions, SessionPersistenceConfig,
+    AddTorrent, AddTorrentOptions, AddTorrentResponse, ListenerMode, ListenerOptions, MseMode,
+    Session, SessionOptions, SessionPersistenceConfig,
 };
 
 /// Fixed incoming port for peer connections (also UPnP-forwarded). A high
@@ -1310,6 +1310,10 @@ pub fn run() {
                 } else {
                     Some(settings.bind_device.trim().to_string())
                 },
+                // Prefer encrypted (MSE) peer connections, falling back to
+                // plaintext — lets us talk to private-tracker peers that
+                // require encryption while still reaching plaintext public peers.
+                mse_mode: MseMode::Enabled,
                 // Accept incoming peer connections so we can actually seed:
                 // without a listener, peers can't reach us and the ratio never
                 // moves once a torrent finishes. UPnP opens the port on the
