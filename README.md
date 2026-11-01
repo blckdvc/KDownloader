@@ -1,4 +1,6 @@
-# Pulsar
+# KDownloader
+
+A light download manager and BitTorrent client for macOS, named as a nod to JDownloader.
 
 A light, native BitTorrent client for macOS — Transmission-weight, built on the
 [`librqbit`](https://crates.io/crates/librqbit) engine and [Tauri 2](https://tauri.app).
@@ -22,7 +24,7 @@ small native binary rather than a 150 MB Electron bundle.
 ### Not included / known limits
 
 - **Protocol encryption (MSE/PE) is *not supported*** — the `librqbit` engine currently has no
-  message-stream-encryption support, so Pulsar can only talk to peers in **plaintext**. Peers that
+  message-stream-encryption support, so KDownloader can only talk to peers in **plaintext**. Peers that
   require/negotiate encryption fail the handshake. This mostly hits **private trackers** (which often
   mandate encryption): their swarms seed/leech poorly or not at all, while public torrents (with many
   plaintext peers) work fine. Tracked upstream in
@@ -70,21 +72,21 @@ cargo tauri build
 
 Output lands in `src-tauri/target/release/bundle/`:
 
-- `macos/Pulsar.app` — the application
-- `dmg/Pulsar_0.1.0_aarch64.dmg` — a drag-to-install disk image
+- `macos/KDownloader.app` — the application
+- `dmg/KDownloader_0.1.0_aarch64.dmg` — a drag-to-install disk image
 
 > The build is ad-hoc signed. See **Install on macOS** below for why that
 > matters for automatic UPnP, and how to fix it for free.
 
 ## Install on macOS
 
-Pulsar is not Apple-notarized, so after you download or build it, do a one-time
+KDownloader is not Apple-notarized, so after you download or build it, do a one-time
 local signing step — otherwise macOS silently blocks the app's **local network**
 access, and automatic **UPnP** port-forwarding (so peers can reach you) won't work.
 
 ```sh
-# signs /Applications/Pulsar.app by default; pass a path for another location
-./scripts/pulsar-macos-sign.command
+# signs /Applications/KDownloader.app by default; pass a path for another location
+./scripts/kdownloader-macos-sign.command
 ```
 
 The script creates a **stable, locally-trusted code-signing certificate** (its
@@ -92,13 +94,13 @@ private key is generated on your machine and never leaves it), clears the
 download-quarantine flag, and signs the app. You'll be asked for your macOS login
 password once, to trust the certificate. Then:
 
-1. Launch Pulsar.
-2. **System Settings → Privacy & Security → Local Network → enable Pulsar.**
+1. Launch KDownloader.
+2. **System Settings → Privacy & Security → Local Network → enable KDownloader.**
 
 That's it — UPnP then opens your BitTorrent port automatically, the way other
 clients do, and the permission sticks.
 
-- Undo at any time: `./scripts/pulsar-macos-sign.command --remove`.
+- Undo at any time: `./scripts/kdownloader-macos-sign.command --remove`.
 - It works with both the macOS system OpenSSL (LibreSSL) and Homebrew OpenSSL.
 - **Distributing to non-technical users?** Proper **Developer ID signing +
   notarization** (an Apple Developer account) removes this step entirely — it's
@@ -128,7 +130,7 @@ and `ui/direct.js`; the engine is independent of Tauri and tested with `cargo te
 Multi-volume RAR sets extract once their last volume arrives, and a failed extraction
 can be retried from the right-click menu. Deleted files go to the Trash.
 
-Link protectors open in a small window where you solve the captcha yourself. Pulsar also
+Link protectors open in a small window where you solve the captcha yourself. KDownloader also
 listens for Click'n'Load on `127.0.0.1:9666`: links from a known protector start at once,
 and links from any other page wait in the Link Grabber.
 

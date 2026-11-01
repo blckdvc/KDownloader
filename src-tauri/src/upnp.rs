@@ -198,7 +198,7 @@ async fn add_mapping(http: &reqwest::Client, igd: &Igd, port: u16, proto: &str) 
          <NewInternalPort>{port}</NewInternalPort>\
          <NewInternalClient>{ip}</NewInternalClient>\
          <NewEnabled>1</NewEnabled>\
-         <NewPortMappingDescription>Pulsar</NewPortMappingDescription>\
+         <NewPortMappingDescription>KDownloader</NewPortMappingDescription>\
          <NewLeaseDuration>{lease}</NewLeaseDuration>\
          </u:AddPortMapping></s:Body></s:Envelope>",
         st = igd.service_type,

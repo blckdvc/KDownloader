@@ -521,7 +521,7 @@ async function saveSettings() {
   const portChanged = settingsCache && (settings.listen_port !== settingsCache.listen_port || settings.upnp_enabled !== settingsCache.upnp_enabled || settings.utp_enabled !== settingsCache.utp_enabled || settings.bind_device !== settingsCache.bind_device);
   try {
     await invoke("save_settings", { settings }); settingsCache = settings; updateLimitsBadge(); updateDirLabel(); $("modal").hidden = true;
-    if (portChanged) showNotice("Network settings saved — restart Pulsar for the new port/UPnP to take effect.");
+    if (portChanged) showNotice("Network settings saved — restart KDownloader for the new port/UPnP to take effect.");
   }
   catch (e) { showError(e); }
 }
@@ -572,7 +572,7 @@ window.addEventListener("pulsar-tab", refresh);
 // ---- about ---------------------------------------------------------------
 $("about-logo").append(document.querySelector("#about-open .logo").cloneNode(true));
 $("about-open").addEventListener("click", async () => {
-  try { $("about-title").textContent = `Pulsar ${await window.__TAURI__.app.getVersion()}`; } catch (e) {}
+  try { $("about-title").textContent = `KDownloader ${await window.__TAURI__.app.getVersion()}`; } catch (e) {}
   $("about-modal").hidden = false;
   $("about-close").focus();
 });

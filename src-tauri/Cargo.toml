@@ -1,12 +1,12 @@
 [package]
-name = "pulsar"
+name = "kdownloader"
 version = "0.1.0"
 description = "A light, complete BitTorrent client"
 edition = "2021"
 rust-version = "1.85"
 
 [lib]
-name = "pulsar_lib"
+name = "kdownloader_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

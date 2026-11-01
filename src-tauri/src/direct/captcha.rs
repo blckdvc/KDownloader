@@ -1,5 +1,5 @@
 //! A popup showing a link protector's page, so that the user can solve its
-//! captcha. Pulsar never answers it: it only reads the links the page reveals.
+//! captcha. KDownloader never answers it: it only reads the links the page reveals.
 
 use super::cnl;
 use super::engine::Engine;

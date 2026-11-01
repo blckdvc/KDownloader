@@ -1,29 +1,29 @@
 #!/bin/bash
 #
-# pulsar-macos-sign.command — make Pulsar's automatic UPnP work on macOS.
+# kdownloader-macos-sign.command — make KDownloader's automatic UPnP work on macOS.
 #
-# Pulsar is distributed without Apple notarization. On macOS, an unsigned app's
+# KDownloader is distributed without Apple notarization. On macOS, an unsigned app's
 # access to the local network (needed to talk to your router for UPnP port
 # forwarding) is blocked by the system privacy layer, and an ad-hoc signature
 # changes on every copy so the permission never sticks.
 #
-# This script gives Pulsar a *stable, locally-trusted* code signature so macOS
+# This script gives KDownloader a *stable, locally-trusted* code signature so macOS
 # will honor the "Local Network" permission you grant it. It is a ONE-TIME
 # setup, done entirely on your own machine — nothing is uploaded anywhere.
 #
 # Usage:
-#   ./pulsar-macos-sign.command            # signs /Applications/Pulsar.app
-#   ./pulsar-macos-sign.command /path/to/Pulsar.app
-#   ./pulsar-macos-sign.command --remove   # undo: delete the local certificate
+#   ./kdownloader-macos-sign.command            # signs /Applications/KDownloader.app
+#   ./kdownloader-macos-sign.command /path/to/KDownloader.app
+#   ./kdownloader-macos-sign.command --remove   # undo: delete the local certificate
 #
 # Security note: this creates a self-signed certificate, trusted for CODE
 # SIGNING on your account only. Its private key is generated locally and never
 # leaves your Mac. Removing it later: run with --remove, or delete
-# "Pulsar Local Signing" from Keychain Access.
+# "KDownloader Local Signing" from Keychain Access.
 #
 set -euo pipefail
 
-IDENTITY="Pulsar Local Signing"
+IDENTITY="KDownloader Local Signing"
 KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 
 say() { printf '\033[1;34m==>\033[0m %s\n' "$1"; }
@@ -36,11 +36,11 @@ if [[ "${1:-}" == "--remove" ]]; then
   say "Removing the local signing certificate…"
   security delete-identity -c "$IDENTITY" "$KEYCHAIN" 2>/dev/null || true
   security delete-certificate -c "$IDENTITY" "$KEYCHAIN" 2>/dev/null || true
-  echo "Done. (Pulsar stays signed with it until you rebuild/replace the app.)"
+  echo "Done. (KDownloader stays signed with it until you rebuild/replace the app.)"
   exit 0
 fi
 
-APP="${1:-/Applications/Pulsar.app}"
+APP="${1:-/Applications/KDownloader.app}"
 [[ -d "$APP" ]] || die "App not found: $APP  (pass the path as the first argument)"
 
 say "Signing: $APP"
@@ -91,8 +91,8 @@ codesign --verify --verbose "$APP" && say "Signature OK."
 cat <<EOF
 
 ✅ Done. Now:
-   1. Launch Pulsar.
-   2. Allow it in: System Settings → Privacy & Security → Local Network → Pulsar
+   1. Launch KDownloader.
+   2. Allow it in: System Settings → Privacy & Security → Local Network → KDownloader
       (so it can open your BitTorrent port via UPnP, like other clients do).
 
 That's it — the permission will stick from now on.

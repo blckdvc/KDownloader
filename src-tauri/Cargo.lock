@@ -2630,6 +2630,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "kdownloader"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "anyhow",
+ "arboard",
+ "base64 0.22.1",
+ "cbc",
+ "keyring",
+ "libc",
+ "librqbit",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "percent-encoding",
+ "regex",
+ "reqwest",
+ "roxmltree",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-notification",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-window-state",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "trash",
+ "unrar",
+]
+
+[[package]]
 name = "keyboard-types"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3927,40 +3961,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
-]
-
-[[package]]
-name = "pulsar"
-version = "0.1.0"
-dependencies = [
- "aes",
- "anyhow",
- "arboard",
- "base64 0.22.1",
- "cbc",
- "keyring",
- "libc",
- "librqbit",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "percent-encoding",
- "regex",
- "reqwest",
- "roxmltree",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-notification",
- "tauri-plugin-single-instance",
- "tauri-plugin-window-state",
- "tokio",
- "tokio-util",
- "tracing",
- "trash",
- "unrar",
 ]
 
 [[package]]
