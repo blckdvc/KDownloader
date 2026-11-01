@@ -39,6 +39,8 @@ pub struct Settings {
     pub auto_extract: bool,
     pub delete_archive: bool,
     pub watch_clipboard: bool,
+    /// Start copied links at once instead of leaving them in the grabber.
+    pub auto_start_clipboard: bool,
 }
 
 impl Default for Settings {
@@ -51,6 +53,7 @@ impl Default for Settings {
             auto_extract: true,
             delete_archive: false,
             watch_clipboard: true,
+            auto_start_clipboard: true,
         }
     }
 }
@@ -133,6 +136,10 @@ pub struct Probe {
     pub provider: Option<Provider>,
     pub direct: Option<String>,
     pub max_chunks: Option<usize>,
+    /// A web page to open in a browser, rather than a file.
+    pub page: bool,
+    /// The page hides its links behind a captcha the user has to solve.
+    pub protected: bool,
     #[serde(skip)]
     html: bool,
     #[serde(skip)]
@@ -298,6 +305,14 @@ impl Engine {
                 if files_only {
                     continue;
                 }
+                found.push(Probe {
+                    online: false,
+                    html: false,
+                    page: true,
+                    error: Some("This is a web page, not a file".into()),
+                    ..probe
+                });
+                continue;
             }
             found.push(probe);
         }
@@ -431,7 +446,11 @@ impl Engine {
         if let Some(item) = removed {
             let _ = std::fs::remove_file(item.part_path());
             if let (true, Some(output)) = (delete_file, &item.output) {
-                let _ = std::fs::remove_file(output);
+                // After extraction the output is the unpacked folder.
+                let _ = match output.is_dir() {
+                    true => std::fs::remove_dir_all(output),
+                    false => std::fs::remove_file(output),
+                };
             }
             let _ = std::fs::remove_dir(&item.dir); // only succeeds when empty
         }
@@ -570,6 +589,9 @@ impl Engine {
             };
             if !info.online {
                 return Err(DlError::Fatal(info.error.unwrap_or_else(|| "offline".into())));
+            }
+            if info.html {
+                return Err(DlError::Fatal("The server sent a web page, not a file".into()));
             }
             fresh |= info.size != item.size || info.resumable != item.resumable;
             let chunks = item.max_chunks.unwrap_or(usize::MAX).min(self.settings().chunks);
@@ -865,6 +887,18 @@ async fn extract_archive(archive: &Path, target: &Path) -> Result<(), String> {
 async fn inspect(http: &Client, accounts: &Accounts, url: &str) -> Probe {
     let (provider, unlocked) = match accounts.unlock_any(url).await {
         None => {
+            if links::is_link_protector(url) {
+                let name = links::name_from_url(url);
+                return Probe {
+                    url: url.to_string(),
+                    package: links::package_name(&name),
+                    name,
+                    page: true,
+                    protected: true,
+                    error: Some("Protected page: solve its captcha to get the links".into()),
+                    ..Default::default()
+                };
+            }
             let mut result = probe(http, url).await;
             // A hoster answers with its landing page, or blocks us outright.
             if (result.html || !result.online) && accounts.is_known_hoster(url).await {

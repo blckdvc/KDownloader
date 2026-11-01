@@ -357,7 +357,28 @@ async fn clipboard_grab_ignores_plain_web_pages() {
     let fx = fixture();
     let article = serve_page().await;
     assert!(fx.engine.grab(&article, true).await.is_empty());
-    assert_eq!(fx.engine.grab(&article, false).await.len(), 1);
+    let probes = fx.engine.grab(&article, false).await;
+    assert_eq!(probes.len(), 1);
+    assert!(!probes[0].online && probes[0].page, "a page is never offered as a file");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn web_page_answering_a_queued_link_fails_instead_of_saving_html() {
+    let article = serve_page().await;
+    let fx = fixture();
+    fx.engine.add(vec![Probe { url: article, name: "movie.mkv".into(), package: "movie".into(), online: true, ..Default::default() }]);
+    let item = wait_done(&fx.engine).await;
+    assert!(item.status == Status::Failed);
+    assert_eq!(item.error.as_deref(), Some("The server sent a web page, not a file"));
+    assert!(item.output.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn protected_links_are_kept_for_the_browser_even_from_the_clipboard() {
+    let fx = fixture();
+    let probes = fx.engine.grab("https://www.keeplinks.org/p16/6ae2926a663d8", true).await;
+    assert_eq!(probes.len(), 1);
+    assert!(!probes[0].online && probes[0].protected);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -432,6 +453,13 @@ async fn real_server_download_matches_a_plain_get() {
     assert!(item.status == Status::Done, "{:?}", item.error);
     assert_eq!(item.segments.len(), 2);
     assert!(std::fs::read(item.output.unwrap()).unwrap() == expected);
+}
+
+#[test]
+fn settings_saved_before_a_new_option_get_its_default() {
+    let settings: Settings = serde_json::from_str(r#"{"chunks":2}"#).unwrap();
+    assert_eq!(settings.chunks, 2);
+    assert!(settings.auto_start_clipboard);
 }
 
 #[test]

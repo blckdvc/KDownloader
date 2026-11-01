@@ -28,6 +28,11 @@
       </div>
       <button type="button" id="app-tab-torrent" class="app-tab active">Torrent</button>
       <button type="button" id="app-tab-direct" class="app-tab">Direct Download <span id="app-grab-count" class="app-badge" hidden></span></button>
+      <button type="button" id="app-tab-bandwidth" class="app-tab">Bandwidth</button>
+      <button type="button" id="bw-mini" class="bw-mini" title="Open Bandwidth">
+        <svg id="bw-mini-chart" width="96" height="22" aria-hidden="true"></svg>
+        <span id="bw-mini-text">↓ 0 B/s&nbsp;&nbsp;↑ 0 B/s</span>
+      </button>
     </nav>
 
     <div id="view-torrent" class="view">
@@ -79,7 +84,7 @@
         <div class="table-wrap">
           <table class="ttable">
             <colgroup>
-              <col data-col="name" /><col data-col="size" /><col data-col="progress" /><col data-col="status" /><col data-col="peers" /><col data-col="swarm" /><col data-col="down" /><col data-col="up" /><col data-col="eta" /><col data-col="ratio" />
+              <col data-col="name" /><col data-col="size" /><col data-col="progress" /><col data-col="status" /><col data-col="seeds" /><col data-col="peers" /><col data-col="down" /><col data-col="up" /><col data-col="eta" /><col data-col="ratio" />
             </colgroup>
             <thead>
               <tr>
@@ -87,8 +92,8 @@
                 <th data-sort="size" class="num">Size</th>
                 <th data-sort="progress">Progress</th>
                 <th data-sort="status">Status</th>
-                <th data-sort="peers" class="num" title="Connected peers">Peers</th>
-                <th data-sort="swarm" class="num" title="Peers seen in swarm (DHT + trackers)">Swarm</th>
+                <th data-sort="seeds" class="num" title="Connected seeds (seeds in the swarm, from trackers)">Seeds</th>
+                <th data-sort="peers" class="num" title="Connected peers (peers in the swarm, from trackers)">Peers</th>
                 <th data-sort="down" class="num">↓ Speed</th>
                 <th data-sort="up" class="num">↑ Speed</th>
                 <th data-sort="eta" class="num">ETA</th>
@@ -122,70 +127,160 @@
       <button id="reveal" class="link" title="Reveal download folder in Finder">Download folder</button>
     </footer>
 
-    <!-- Settings modal -->
     </div>
 
     <div id="view-direct" class="view" hidden>
-  <header class="dd-head">
-    <nav>
-      <button id="dd-tab-downloads" class="tab active">Downloads</button>
-      <button id="dd-tab-grabber" class="tab">Link Grabber <span id="dd-grab-count" class="badge" hidden></span></button>
-    </nav>
-    <div class="spacer"></div>
-    <span id="dd-total-speed" class="muted"></span>
-    <button id="dd-open-settings">Settings</button>
-  </header>
-
-  <main id="dd-view-downloads">
-    <div class="toolbar">
-      <button id="dd-resume-all">Start all</button>
-      <button id="dd-pause-all">Pause all</button>
-      <button id="dd-clear-done">Clear finished</button>
-    </div>
-    <div id="dd-packages"></div>
-    <p id="dd-empty" class="empty">No downloads yet. Copy a link, or paste some in the Link Grabber.</p>
-  </main>
-
-  <main id="dd-view-grabber" hidden>
-    <textarea id="dd-links" rows="5" placeholder="Paste hoster or direct links, any text containing them, or a page that lists files…"></textarea>
-    <div class="toolbar">
-      <button id="dd-analyze" class="primary">Analyze</button>
-      <button id="dd-add-selected" disabled>Add selected</button>
-      <button id="dd-clear-grabbed">Clear</button>
-      <span id="dd-grab-status" class="muted"></span>
-    </div>
-    <table>
-      <colgroup><col class="c-check"><col><col class="c-pack"><col class="c-size"><col class="c-state"></colgroup>
-      <thead><tr><th></th><th>File</th><th>Package</th><th>Size</th><th>Status</th></tr></thead>
-      <tbody id="dd-grabbed"></tbody>
-    </table>
-  </main>
-
-  <dialog id="dd-settings">
-    <form method="dialog">
-      <h2>Settings</h2>
-      <label>Download folder
-        <span class="row"><input id="dd-s-dir" type="text"><button type="button" id="dd-s-browse">Browse</button></span>
-      </label>
-      <label>Simultaneous downloads <input id="dd-s-active" type="number" min="1" max="20"></label>
-      <label>Connections per file <input id="dd-s-chunks" type="number" min="1" max="16"></label>
-      <label>Speed limit (KiB/s, 0 = unlimited) <input id="dd-s-limit" type="number" min="0"></label>
-      <label class="check"><input id="dd-s-extract" type="checkbox"> Extract archives when finished</label>
-      <label class="check"><input id="dd-s-delete" type="checkbox"> Delete archive after extraction</label>
-      <label class="check"><input id="dd-s-clipboard" type="checkbox"> Watch the clipboard for links</label>
-      <h3>Premium accounts</h3>
-      <p class="muted hint">Keys are stored in the macOS Keychain. Only links from hosts your account supports are sent to the service.</p>
-      <div id="dd-accounts"></div>
-      <div class="row end">
-        <button value="cancel">Cancel</button>
-        <button id="dd-s-save" value="save" class="primary">Save</button>
+    <header class="toolbar">
+      <form id="dd-add-form" class="add">
+        <input id="dd-links" type="text" placeholder="Paste hoster or direct links, or a page that lists files…" autocomplete="off" spellcheck="false" />
+        <button id="dd-add" type="submit" class="primary">Add</button>
+      </form>
+      <div class="tb-actions">
+        <button id="dd-tb-resume" class="ghost icon" title="Resume selected" disabled>▶</button>
+        <button id="dd-tb-pause" class="ghost icon" title="Pause selected" disabled>⏸</button>
+        <button id="dd-tb-remove" class="ghost icon" title="Remove selected" disabled>✕</button>
+        <button type="button" id="dd-settings-btn" class="ghost icon" title="Settings">⚙</button>
       </div>
-    </form>
-  </dialog>
+    </header>
 
-  <div id="dd-toast" hidden></div>
+    <div id="dd-error" class="error" hidden></div>
+
+    <div class="body">
+      <aside class="sidebar">
+        <div class="side-group">
+          <div class="side-title">Status</div>
+          <ul id="dd-status-filters" class="side-list"></ul>
+        </div>
+        <div class="side-group">
+          <div class="side-title">Review</div>
+          <ul id="dd-grab-filter" class="side-list"></ul>
+        </div>
+        <div class="side-group">
+          <div class="side-title">Packages</div>
+          <ul id="dd-package-filters" class="side-list"></ul>
+        </div>
+      </aside>
+
+      <main class="main">
+        <div id="dd-queue-view" class="table-wrap">
+          <table class="ttable">
+            <colgroup>
+              <col /><col data-dd-col="size" /><col data-dd-col="progress" /><col data-dd-col="status" /><col data-dd-col="speed" /><col data-dd-col="eta" /><col data-dd-col="conns" /><col data-dd-col="service" /><col data-dd-col="package" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th data-dd-sort="name" class="col-name">Name</th>
+                <th data-dd-sort="size" class="num">Size</th>
+                <th data-dd-sort="progress">Progress</th>
+                <th data-dd-sort="status">Status</th>
+                <th data-dd-sort="speed" class="num">↓ Speed</th>
+                <th data-dd-sort="eta" class="num">ETA</th>
+                <th data-dd-sort="conns" class="num" title="Connections">Conn</th>
+                <th data-dd-sort="service">Service</th>
+                <th data-dd-sort="package">Package</th>
+              </tr>
+            </thead>
+            <tbody id="dd-tbody"></tbody>
+          </table>
+          <div id="dd-empty" class="empty"><p>No downloads.</p><p class="muted">Paste links above, or copy one anywhere.</p></div>
+        </div>
+
+        <div id="dd-grabber-view" class="dd-grabber" hidden>
+          <div class="opts">
+            <button id="dd-add-selected" type="button" class="primary" disabled>Add selected</button>
+            <button id="dd-clear-grabbed" type="button" class="ghost">Clear</button>
+          </div>
+          <div class="table-wrap">
+            <table class="ttable">
+              <colgroup><col class="dd-c-check" /><col /><col class="dd-c-size" /><col class="dd-c-package" /><col class="dd-c-state" /></colgroup>
+              <thead><tr><th></th><th class="col-name">Name</th><th class="num">Size</th><th>Package</th><th>Status</th></tr></thead>
+              <tbody id="dd-grabbed"></tbody>
+            </table>
+            <div id="dd-grab-empty" class="empty"><p>Nothing to review.</p><p class="muted">Links you copy appear here before they start.</p></div>
+          </div>
+        </div>
+      </main>
     </div>
 
+    <footer class="statusbar">
+      <span id="dd-count">0 downloads</span>
+      <span class="spacer"></span>
+      <button id="dd-start-all" class="link" title="Resume everything paused or failed">Start all</button>
+      <button id="dd-pause-all" class="link">Pause all</button>
+      <button id="dd-clear-done" class="link" title="Forget completed downloads, keeping their files">Clear completed</button>
+      <span id="dd-limits-badge" class="muted"></span>
+      <span id="dd-totals">↓ 0 B/s</span>
+      <button id="dd-reveal" class="link" title="Reveal download folder in Finder">Download folder</button>
+    </footer>
+    </div>
+
+    <div id="view-bandwidth" class="view" hidden>
+      <div class="bw-head">
+        <h2>Bandwidth</h2>
+        <div class="bw-ranges" role="group" aria-label="Time range">
+          <button type="button" data-range="60" class="ghost active">1 min</button>
+          <button type="button" data-range="300" class="ghost">5 min</button>
+          <button type="button" data-range="1800" class="ghost">30 min</button>
+        </div>
+      </div>
+      <div class="bw-plot">
+        <svg id="bw-chart" role="img" aria-label="Transfer speeds over time"></svg>
+        <div id="bw-tip" class="bw-tip" hidden></div>
+        <p id="bw-waiting" class="muted bw-waiting">Collecting the first samples…</p>
+      </div>
+      <table class="bw-table">
+        <thead><tr><th>Series</th><th class="num">Now</th><th class="num">Peak</th><th class="num">Average</th></tr></thead>
+        <tbody id="bw-summary"></tbody>
+      </table>
+    </div>
+
+    <!-- Direct Download settings -->
+    <div id="dd-modal" class="overlay" hidden>
+      <div class="sheet">
+        <div class="sheet-head"><h2>Direct Download settings</h2><button id="dd-modal-close" class="ghost icon">✕</button></div>
+        <div class="sheet-body">
+          <section class="group">
+            <h3>Downloads</h3>
+            <label>Download folder
+              <span class="withbtn"><input id="dd-s-dir" type="text" />
+              <button type="button" class="ghost browse" data-target="dd-s-dir">Browse…</button></span>
+            </label>
+            <div class="grid2 dd-grid">
+              <label>Simultaneous downloads <input id="dd-s-active" type="number" min="1" max="20" /></label>
+              <label>Connections per file <input id="dd-s-chunks" type="number" min="1" max="16" /></label>
+              <label>Speed limit (KiB/s, 0 = unlimited) <input id="dd-s-limit" type="number" min="0" /></label>
+            </div>
+          </section>
+          <section class="group">
+            <h3>Behaviour</h3>
+            <label class="chk"><input id="dd-s-extract" type="checkbox" /> Extract archives when finished</label>
+            <label class="chk"><input id="dd-s-delete" type="checkbox" /> Delete archive after extraction</label>
+            <label class="chk"><input id="dd-s-clipboard" type="checkbox" /> Watch the clipboard for links</label>
+            <label class="chk"><input id="dd-s-autostart" type="checkbox" /> Start copied links automatically</label>
+          </section>
+          <section class="group">
+            <h3>Premium accounts</h3>
+            <p class="muted dd-hint">Keys are stored in the macOS Keychain. Only links from hosts your account supports are sent to the service.</p>
+            <div id="dd-accounts"></div>
+          </section>
+        </div>
+        <div class="sheet-foot"><button id="dd-modal-cancel" class="ghost">Cancel</button><button id="dd-modal-save" class="primary">Save</button></div>
+      </div>
+    </div>
+
+    <div id="dd-rm-modal" class="overlay" hidden>
+      <div class="sheet small">
+        <div class="sheet-head"><h2>Remove download</h2></div>
+        <div class="sheet-body"><p id="dd-rm-name" class="muted"></p></div>
+        <div class="sheet-foot">
+          <button id="dd-rm-cancel" class="ghost">Cancel</button>
+          <button id="dd-rm-keep">Remove, keep files</button>
+          <button id="dd-rm-del" class="danger">Remove + delete files</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings modal -->
     <div id="modal" class="overlay" hidden>
       <div class="sheet">
         <div class="sheet-head"><h2>Settings</h2><button id="modal-close" class="ghost icon">✕</button></div>
@@ -261,5 +356,6 @@
 
     <script src="main.js"></script>
     <script src="direct.js"></script>
+    <script src="bandwidth.js"></script>
   </body>
 </html>

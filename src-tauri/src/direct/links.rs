@@ -31,6 +31,28 @@ pub fn extract_urls(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// Sites that hide links behind a captcha, so a page can't be read for its files.
+const LINK_PROTECTORS: [&str; 8] = [
+    "keeplinks.org", "keeplinks.co", "keeplinks.eu", "filecrypt.cc", "filecrypt.co",
+    "safelinking.net", "linkvertise.com", "ouo.io",
+];
+
+static AFFILIATE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)^/(free|premium|ref|aff)\d+(\.html)?$").unwrap());
+
+/// A hoster's sign-up page advertised on another site, not a file.
+pub fn is_affiliate_link(url: &str) -> bool {
+    Url::parse(url).is_ok_and(|u| AFFILIATE_RE.is_match(u.path()))
+}
+
+pub fn is_link_protector(url: &str) -> bool {
+    let Some(host) = Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase))
+    else {
+        return false;
+    };
+    LINK_PROTECTORS.iter().any(|d| host == *d || host.ends_with(&format!(".{d}")))
+}
+
 /// Links to downloadable files in an HTML page (one level, no JS).
 pub fn extract_file_links(html: &str, base: &str) -> Vec<String> {
     let Ok(base) = Url::parse(base) else { return vec![] };
@@ -105,6 +127,21 @@ pub fn archive_stem(file: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spots_hoster_ads() {
+        assert!(is_affiliate_link("https://ddownload.com/free334766.html"));
+        assert!(!is_affiliate_link("https://ddownload.com/abcd1234efgh/film.part01.rar"));
+        assert!(!is_affiliate_link("https://rapidgator.net/file/abc"));
+    }
+
+    #[test]
+    fn recognises_link_protectors() {
+        assert!(is_link_protector("https://www.keeplinks.org/p16/6ae2926a663d8"));
+        assert!(is_link_protector("https://filecrypt.cc/Container/ABC.html"));
+        assert!(!is_link_protector("https://notkeeplinks.org/x"));
+        assert!(!is_link_protector("https://rapidgator.net/file/x"));
+    }
 
     #[test]
     fn finds_urls_in_text() {

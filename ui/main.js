@@ -6,6 +6,8 @@ const num = (id) => Math.max(0, parseInt($(id).value, 10) || 0);
 let torrents = [];
 let settingsCache = null;
 let selectedId = null;
+let selectedIds = new Set(); // every selected row; selectedId is the one the detail pane shows
+let anchorId = null;        // where a shift-click range starts
 let statusFilter = "all";
 let catFilter = "";     // "" = all; "\u0000none" = uncategorized
 let tagFilter = "";
@@ -68,6 +70,7 @@ function metrics(t) {
   const ul = t.paused || !live ? 0 : speedBps(live.upload_speed);
   const pct = total > 0 ? Math.min(100, (done / total) * 100) : st.finished ? 100 : 0;
   const peers = ps ? ps.live || 0 : 0, swarm = ps ? ps.seen || 0 : 0;
+  const seeds = snap ? snap.connected_seeds || 0 : 0, leechers = Math.max(0, peers - seeds);
   const ratio = done > 0 ? up / done : up > 0 ? Infinity : 0;
   const etaSec = !t.paused && dl > 0 && total > done ? (total - done) / dl : st.finished ? -1 : Infinity;
   let kind = classify(t);
@@ -77,7 +80,7 @@ function metrics(t) {
   if ((kind === "downloading" || kind === "idle") && !t.paused && !st.finished && pct < 100 && peers === 0 && dl === 0) {
     kind = "stalled";
   }
-  return { st, live, snap, ps, total, done, up, dl, ul, pct, peers, swarm, ratio, etaSec, kind };
+  return { st, live, snap, ps, total, done, up, dl, ul, pct, peers, swarm, seeds, leechers, ratio, etaSec, kind };
 }
 
 // ---- add / options -------------------------------------------------------
@@ -168,8 +171,8 @@ function sortVal(t, col) {
     case "size": return m.total;
     case "progress": return m.pct;
     case "status": return m.kind;
-    case "peers": return m.peers;
-    case "swarm": return m.swarm;
+    case "seeds": return t.tracker_seeds ?? m.seeds;
+    case "peers": return t.tracker_peers ?? m.leechers;
     case "down": return m.dl;
     case "up": return m.ul;
     case "eta": return m.etaSec;
@@ -177,11 +180,15 @@ function sortVal(t, col) {
     default: return 0;
   }
 }
+// "connected (in the swarm)", as in qBittorrent; the total comes from trackers.
+const swarmCell = (connected, total) => (total == null ? `${connected}` : `${connected} (${total})`);
 function renderTable() {
   const rows = visibleTorrents().sort((a, b) => {
     const x = sortVal(a, sort.col), y = sortVal(b, sort.col);
     if (x < y) return -1 * sort.dir; if (x > y) return 1 * sort.dir; return 0;
   });
+  for (const id of selectedIds) if (!torrents.some((t) => t.id === id)) selectedIds.delete(id);
+  if (selectedId != null && !selectedIds.has(selectedId)) selectedId = [...selectedIds].pop() ?? null;
   const tb = $("tbody");
   tb.innerHTML = rows.map((t) => {
     const m = metrics(t);
@@ -189,13 +196,13 @@ function renderTable() {
     const eta = t.paused ? "" : etaText(t);
     const ratio = m.ratio === Infinity ? "∞" : m.ratio.toFixed(2);
     const cat = t.category ? `<span class="cat-tag">${esc(t.category)}</span>` : "";
-    return `<tr data-id="${t.id}" class="s-${m.kind} ${t.id === selectedId ? "selected" : ""}">
+    return `<tr data-id="${t.id}" class="s-${m.kind} ${selectedIds.has(t.id) ? "selected" : ""}">
       <td class="col-name" title="${esc(t.name)}">${esc(t.name)}${cat}</td>
       <td class="num">${bytes(m.total)}</td>
       <td><span class="pbar"><span style="width:${m.pct}%"></span><em>${m.pct.toFixed(1)}%</em></span></td>
       <td><span class="st"${m.st.error ? ` title="${esc(m.st.error)}"` : ""}>${LABEL[m.kind] || m.kind}</span></td>
-      <td class="num">${m.peers}</td>
-      <td class="num">${m.swarm}</td>
+      <td class="num">${swarmCell(m.seeds, t.tracker_seeds)}</td>
+      <td class="num">${swarmCell(m.leechers, t.tracker_peers)}</td>
       <td class="num">${dl}</td>
       <td class="num">${ul}</td>
       <td class="num">${eta}</td>
@@ -212,7 +219,7 @@ function renderTable() {
     th.classList.toggle("asc", th.dataset.sort === sort.col && sort.dir === 1);
   });
 }
-$("tbody").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-id]"); if (tr) selectTorrent(Number(tr.dataset.id)); });
+$("tbody").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-id]"); if (tr) pickRow(Number(tr.dataset.id), e); });
 $("tbody").addEventListener("dblclick", async (e) => {
   const tr = e.target.closest("tr[data-id]"); if (!tr) return;
   const t = torrents.find((x) => x.id === Number(tr.dataset.id));
@@ -228,11 +235,17 @@ document.querySelectorAll("thead th[data-sort]").forEach((th) => {
 
 // ---- fixed + resizable columns -------------------------------------------
 const COLW_KEY = "pulsar-colw";
-const COLW_DEFAULT = { size: 80, progress: 150, status: 115, peers: 64, swarm: 72, down: 92, up: 92, eta: 80, ratio: 72 };
+const COLW_DEFAULT = { size: 80, progress: 150, status: 115, seeds: 84, peers: 84, down: 92, up: 92, eta: 80, ratio: 72 };
 let colw = { ...COLW_DEFAULT };
 try { colw = { ...COLW_DEFAULT, ...(JSON.parse(localStorage.getItem(COLW_KEY) || "{}")) }; } catch (e) {}
 const colEl = (k) => document.querySelector(`col[data-col="${k}"]`);
-function applyColWidths() { for (const k in COLW_DEFAULT) { const c = colEl(k); if (c) c.style.width = (colw[k] || COLW_DEFAULT[k]) + "px"; } }
+// Fixed columns would otherwise squeeze the flexible Name column down to nothing.
+const MIN_NAME_WIDTH = 240;
+function fitTable() {
+  const fixed = Object.keys(COLW_DEFAULT).reduce((sum, k) => sum + (colw[k] || COLW_DEFAULT[k]), 0);
+  document.querySelector("#view-torrent .ttable").style.minWidth = `${fixed + MIN_NAME_WIDTH}px`;
+}
+function applyColWidths() { for (const k in COLW_DEFAULT) { const c = colEl(k); if (c) c.style.width = (colw[k] || COLW_DEFAULT[k]) + "px"; } fitTable(); }
 applyColWidths();
 document.querySelectorAll("thead th[data-sort]").forEach((th) => {
   const key = th.dataset.sort;
@@ -247,7 +260,7 @@ document.querySelectorAll("thead th[data-sort]").forEach((th) => {
     const startX = e.clientX, startW = colEl(key).getBoundingClientRect().width;
     h.classList.add("drag");
     try { h.setPointerCapture(e.pointerId); } catch (e) {}
-    const move = (ev) => { colw[key] = Math.max(44, Math.round(startW + ev.clientX - startX)); colEl(key).style.width = colw[key] + "px"; };
+    const move = (ev) => { colw[key] = Math.max(44, Math.round(startW + ev.clientX - startX)); colEl(key).style.width = colw[key] + "px"; fitTable(); };
     const up = () => {
       h.classList.remove("drag");
       document.removeEventListener("pointermove", move);
@@ -260,38 +273,44 @@ document.querySelectorAll("thead th[data-sort]").forEach((th) => {
   // double-click a handle resets that column to its default width
   h.addEventListener("dblclick", (e) => {
     e.stopPropagation();
-    colw[key] = COLW_DEFAULT[key]; colEl(key).style.width = colw[key] + "px";
+    colw[key] = COLW_DEFAULT[key]; colEl(key).style.width = colw[key] + "px"; fitTable();
     try { localStorage.setItem(COLW_KEY, JSON.stringify(colw)); } catch (e) {}
   });
 });
 
 // ---- toolbar actions -----------------------------------------------------
 function syncToolbar() {
-  const t = torrents.find((x) => x.id === selectedId);
-  $("tb-resume").disabled = !t || !t.paused;
-  $("tb-pause").disabled = !t || t.paused;
-  $("tb-remove").disabled = !t;
+  const picked = torrents.filter((x) => selectedIds.has(x.id));
+  $("tb-resume").disabled = !picked.some((t) => t.paused);
+  $("tb-pause").disabled = !picked.some((t) => !t.paused);
+  $("tb-remove").disabled = !picked.length;
 }
-$("tb-resume").addEventListener("click", async () => { if (selectedId == null) return; try { await invoke("resume_torrent", { id: selectedId }); await refresh(); } catch (e) { showError(e); } });
-$("tb-pause").addEventListener("click", async () => { if (selectedId == null) return; try { await invoke("pause_torrent", { id: selectedId }); await refresh(); } catch (e) { showError(e); } });
+async function forSelected(command, ids = [...selectedIds]) {
+  try { await Promise.all(ids.map((id) => invoke(command, { id }))); await refresh(); } catch (e) { showError(e); }
+}
+$("tb-resume").addEventListener("click", () => forSelected("resume_torrent", torrents.filter((t) => selectedIds.has(t.id) && t.paused).map((t) => t.id)));
+$("tb-pause").addEventListener("click", () => forSelected("pause_torrent", torrents.filter((t) => selectedIds.has(t.id) && !t.paused).map((t) => t.id)));
 
 let rmTarget = null;
-function openRemoveModal(id) {
-  const t = torrents.find((x) => x.id === id); if (!t) return;
-  rmTarget = id; $("rm-name").textContent = t.name || `torrent ${id}`; $("rm-modal").hidden = false;
+function openRemoveModal(ids = [...selectedIds]) {
+  const picked = torrents.filter((x) => ids.includes(x.id)); if (!picked.length) return;
+  rmTarget = picked.map((t) => t.id);
+  $("rm-name").textContent = picked.length === 1 ? picked[0].name || `torrent ${picked[0].id}` : `${picked.length} torrents selected`;
+  $("rm-modal").hidden = false;
 }
-async function removeNow(id, del) {
+async function removeNow(ids, del) {
   try {
-    await invoke("remove_torrent", { id, deleteFiles: del });
-    if (selectedId === id) { selectedId = null; $("detail").hidden = true; }
+    await Promise.all(ids.map((id) => invoke("remove_torrent", { id, deleteFiles: del })));
+    for (const id of ids) selectedIds.delete(id);
+    if (!selectedIds.size) { selectedId = null; $("detail").hidden = true; }
     await refresh();
   } catch (e) { showError(e); }
 }
-$("tb-remove").addEventListener("click", () => openRemoveModal(selectedId));
+$("tb-remove").addEventListener("click", () => openRemoveModal());
 async function doRemove(del) {
   $("rm-modal").hidden = true; if (rmTarget == null) return;
-  try { await invoke("remove_torrent", { id: rmTarget, deleteFiles: del }); if (selectedId === rmTarget) { selectedId = null; $("detail").hidden = true; } await refresh(); }
-  catch (e) { showError(e); } finally { rmTarget = null; }
+  const ids = rmTarget; rmTarget = null;
+  await removeNow(ids, del);
 }
 $("rm-cancel").addEventListener("click", () => ($("rm-modal").hidden = true));
 $("rm-keep").addEventListener("click", () => doRemove(false));
@@ -312,9 +331,18 @@ $("tbody").addEventListener("scroll", () => hideCtx(true), true);
 $("tbody").addEventListener("contextmenu", (e) => {
   const tr = e.target.closest("tr[data-id]"); if (!tr) return;
   e.preventDefault();
-  const id = Number(tr.dataset.id); selectTorrent(id);
+  const id = Number(tr.dataset.id);
+  if (!selectedIds.has(id)) selectTorrent(id);
   const t = torrents.find((x) => x.id === id); if (!t) return;
-  const items = [
+  const ids = [...selectedIds];
+  const items = ids.length > 1 ? [
+    { label: `▶ Resume ${ids.length} torrents`, act: () => forSelected("resume_torrent", ids) },
+    { label: `⏸ Pause ${ids.length} torrents`, act: () => forSelected("pause_torrent", ids) },
+    { label: `📡 Force re-announce ${ids.length} torrents`, act: () => forSelected("reannounce", ids) },
+    { sep: true },
+    { label: `✕ Remove ${ids.length} torrents (keep files)`, act: () => removeNow(ids, false) },
+    { label: `🗑 Remove ${ids.length} torrents + delete files`, danger: true, act: () => openRemoveModal(ids) },
+  ] : [
     t.paused
       ? { label: "▶ Resume", act: () => invoke("resume_torrent", { id }).then(refresh).catch(showError) }
       : { label: "⏸ Pause", act: () => invoke("pause_torrent", { id }).then(refresh).catch(showError) },
@@ -324,8 +352,8 @@ $("tbody").addEventListener("contextmenu", (e) => {
     { sep: true },
     { label: "📋 Copy info hash", act: () => { try { navigator.clipboard.writeText(t.info_hash || ""); } catch (_) {} } },
     { sep: true },
-    { label: "✕ Remove (keep files)", act: () => removeNow(id, false) },
-    { label: "🗑 Remove + delete files", danger: true, act: () => removeNow(id, true) },
+    { label: "✕ Remove (keep files)", act: () => removeNow([id], false) },
+    { label: "🗑 Remove + delete files", danger: true, act: () => removeNow([id], true) },
   ];
   ctx.innerHTML = items
     .map((it, i) => it.sep ? '<div class="ctx-sep"></div>' : `<div class="ctx-item${it.danger ? " danger" : ""}" data-i="${i}">${it.label}</div>`)
@@ -355,12 +383,17 @@ document.addEventListener("keydown", (e) => {
   const tag = (e.target.tagName || "").toLowerCase();
   if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;
   if (!$("modal").hidden) return; // settings open
+  if ($("view-torrent").hidden) return; // keys belong to the visible tab
 
-  if (e.key === "Delete" || e.key === "Backspace") {
-    if (selectedId == null) return;
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
     e.preventDefault();
-    if (e.shiftKey || e.metaKey) removeNow(selectedId, true); // fast path: remove + delete files
-    else openRemoveModal(selectedId);                          // safe path: choose
+    selectRows(rowOrder());
+  } else if (e.key === "Delete" || e.key === "Backspace") {
+    if (!selectedIds.size) return;
+    e.preventDefault();
+    // Fast path for one torrent; several always get the confirmation.
+    if ((e.shiftKey || e.metaKey) && selectedIds.size === 1) removeNow([...selectedIds], true);
+    else openRemoveModal();
   } else if (e.key === "Escape") {
     hideCtx(); if (!$("detail").hidden) $("detail").hidden = true;
   } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -374,11 +407,34 @@ document.addEventListener("keydown", (e) => {
 });
 
 // ---- detail pane ---------------------------------------------------------
+function paintSelection() {
+  document.querySelectorAll("#tbody tr").forEach((tr) => tr.classList.toggle("selected", selectedIds.has(Number(tr.dataset.id))));
+  syncToolbar();
+}
 function selectTorrent(id) {
-  selectedId = id; contentFor = null;
+  selectedId = id; anchorId = id; selectedIds = new Set([id]); contentFor = null;
   $("detail").hidden = false;
-  document.querySelectorAll("#tbody tr").forEach((tr) => tr.classList.toggle("selected", Number(tr.dataset.id) === id));
-  syncToolbar(); loadTab();
+  paintSelection(); loadTab();
+}
+function selectRows(ids) {
+  selectedIds = new Set(ids); selectedId = ids[ids.length - 1] ?? null; contentFor = null;
+  paintSelection();
+  if (selectedId == null) $("detail").hidden = true; else loadTab();
+}
+// Finder-style: ⌘-click toggles a row, ⇧-click selects a range from the anchor.
+function pickRow(id, e) {
+  if (e.metaKey || e.ctrlKey) {
+    const next = new Set(selectedIds);
+    if (!next.delete(id)) next.add(id);
+    anchorId = id;
+    selectRows([...next]);
+  } else if (e.shiftKey && anchorId != null) {
+    const order = rowOrder(), a = order.indexOf(anchorId), b = order.indexOf(id);
+    if (a === -1 || b === -1) selectTorrent(id);
+    else selectRows(order.slice(Math.min(a, b), Math.max(a, b) + 1));
+  } else {
+    selectTorrent(id);
+  }
 }
 $("detail-close").addEventListener("click", () => { $("detail").hidden = true; });
 document.querySelectorAll(".dtab").forEach((b) => b.addEventListener("click", () => {

@@ -7,3 +7,4 @@
 # Editor
 *.swp
 *.rs.bk
+/src-tauri/vendor/rqbit/target/
