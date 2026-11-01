@@ -9,4 +9,6 @@ Pulsar's patches, to reapply on any update:
 - `librqbit`: `Session::tracker_swarm` exposes them, keeping the best count across trackers.
 - `librqbit`: `StatsSnapshot::connected_seeds` counts live peers holding every piece.
 
+- `tracker_comms`: log spans show the tracker host only, as private trackers keep a passkey in the URL.
+
 `desktop/src-tauri` is removed from the workspace members in `Cargo.toml`.

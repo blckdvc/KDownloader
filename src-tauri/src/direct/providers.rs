@@ -124,6 +124,11 @@ pub enum ApiError {
 }
 
 impl ApiError {
+    /// The service couldn't be reached, as opposed to refusing the request.
+    pub fn is_network(&self) -> bool {
+        matches!(self, ApiError::Failed(m) if m.starts_with("connection:") || m.starts_with("read:"))
+    }
+
     pub fn message(&self) -> &str {
         match self {
             ApiError::Auth(m) | ApiError::Unsupported(m) | ApiError::Failed(m) => m,

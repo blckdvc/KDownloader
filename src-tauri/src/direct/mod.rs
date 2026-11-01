@@ -35,6 +35,11 @@ pub async fn dd_grab(engine: State<'_, Engine>, text: String, files_only: bool) 
 }
 
 #[tauri::command]
+pub fn dd_list_unchecked(engine: State<Engine>, text: String) -> Vec<Probe> {
+    engine.list_unchecked(&text)
+}
+
+#[tauri::command]
 pub fn dd_add(engine: State<Engine>, probes: Vec<Probe>) {
     engine.add(probes);
 }
@@ -185,19 +190,34 @@ fn watch_clipboard(app: AppHandle, engine: Engine) {
         let mut version = clipboard_version();
         loop {
             std::thread::sleep(Duration::from_millis(750));
+            // Read only when watching and something was copied: macOS can count
+            // reading the clipboard against the app.
             let current = clipboard_version();
-            let Ok(text) = clipboard.get_text() else { continue };
-            if text == last && current == version {
+            if current == version && cfg!(target_os = "macos") {
                 continue;
             }
             version = current;
+            if !engine.settings().watch_clipboard {
+                continue;
+            }
+            let Ok(text) = clipboard.get_text() else { continue };
+            if text == last && !cfg!(target_os = "macos") {
+                continue;
+            }
             let has_link = text.contains("magnet:?") || !links::extract_urls(&text).is_empty();
-            if engine.settings().watch_clipboard && has_link {
+            if has_link {
                 let _ = app.emit("clipboard", &text);
             }
             last = text;
         }
     });
+}
+
+/// Writes the queue on exit, since it is otherwise saved every few seconds.
+pub fn flush(app: &AppHandle) {
+    if let Some(engine) = app.try_state::<Engine>() {
+        engine.save();
+    }
 }
 
 pub fn init(app: &mut tauri::App, config_dir: &Path) -> tauri::Result<()> {

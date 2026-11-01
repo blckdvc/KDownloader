@@ -14,8 +14,8 @@ const STATUSES = [
   ["all", "All"], ["downloading", "Downloading"], ["queued", "Queued"],
   ["paused", "Paused"], ["completed", "Completed"], ["errored", "Errored"],
 ];
-const KIND = { queued: "queued", active: "downloading", paused: "paused", extracting: "downloading", done: "completed", failed: "error" };
-const LABELS = { queued: "Queued", active: "Downloading", paused: "Paused", extracting: "Extracting…", done: "Completed", failed: "Errored" };
+const KIND = { queued: "queued", active: "downloading", paused: "paused", waiting: "queued", extracting: "downloading", done: "completed", failed: "error" };
+const LABELS = { queued: "Queued", active: "Downloading", paused: "Paused", waiting: "Waiting to retry", extracting: "Extracting…", done: "Completed", failed: "Errored" };
 
 // A .torrent URL or magnet belongs to the Torrent tab, everything else here.
 const TORRENT_LINKS = /magnet:\?[^\s"'<>]+|https?:\/\/[^\s"'<>]+\.torrent(?:\?[^\s"'<>]*)?/gi;
@@ -89,7 +89,8 @@ function routeClipboard(text) {
 
 // Copied links start by themselves, or wait in the grabber if the user prefers.
 async function collect(text, review = false) {
-  const found = await call("dd_grab", { text, filesOnly: true });
+  // Links from an unknown page aren't contacted until the user accepts them.
+  const found = await call(review ? "dd_list_unchecked" : "dd_grab", review ? { text } : { text, filesOnly: true });
   if (!found?.length) return;
   openCaptchas(found);
   const automatic = settings?.auto_start_clipboard && !review;
@@ -160,8 +161,8 @@ $("links").addEventListener("paste", (event) => {
 });
 
 const selectedItems = () => (grabberOpen ? [] : items.filter((i) => selectedIds.has(i.id)));
-const resumable = (i) => ["paused", "failed"].includes(i.status);
-const pausable = (i) => ["active", "queued"].includes(i.status);
+const resumable = (i) => ["paused", "failed", "waiting"].includes(i.status);
+const pausable = (i) => ["active", "queued", "waiting"].includes(i.status);
 
 function syncToolbar() {
   const picked = selectedItems();
@@ -396,13 +397,13 @@ $("tbody").addEventListener("contextmenu", (e) => {
       { label: "📋 Copy links", act: () => { try { navigator.clipboard.writeText(picked.map((i) => i.url).join("\n")); } catch (_) {} } },
       { sep: true },
       { label: `✕ Remove ${n} downloads (keep files)`, act: () => removeNow(ids, false) },
-      { label: `🗑 Remove ${n} downloads + delete files`, danger: true, act: () => openRemoveModal(ids) },
+      { label: `🗑 Remove ${n} downloads + move files to Trash`, danger: true, act: () => openRemoveModal(ids) },
     );
   } else {
-  if (["paused", "failed"].includes(item.status)) {
+  if (resumable(item)) {
     entries.push({ label: item.status === "failed" ? "▶ Retry" : "▶ Resume", act: () => call("dd_resume", { id }).then(refresh) });
   }
-  if (["active", "queued"].includes(item.status)) {
+  if (pausable(item)) {
     entries.push({ label: "⏸ Pause", act: () => call("dd_pause", { id }).then(refresh) });
   }
   entries.push(
@@ -410,7 +411,7 @@ $("tbody").addEventListener("contextmenu", (e) => {
     { label: "📋 Copy link", act: () => { try { navigator.clipboard.writeText(item.url); } catch (_) {} } },
     { sep: true },
     { label: "✕ Remove (keep files)", act: () => removeNow([id], false) },
-    { label: "🗑 Remove + delete files", danger: true, act: () => removeNow([id], true) },
+    { label: "🗑 Remove + move files to Trash", danger: true, act: () => openRemoveModal([id]) },
   );
   }
   const menu = document.getElementById("ctxmenu");
@@ -473,9 +474,7 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "Delete" || e.key === "Backspace") {
     if (!selectedIds.size) return;
     e.preventDefault();
-    // Fast path for one download; several always get the confirmation.
-    if ((e.shiftKey || e.metaKey) && selectedIds.size === 1) removeNow([...selectedIds], true);
-    else openRemoveModal();
+    openRemoveModal();
   } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     const order = rowOrder();
     if (!order.length) return;
@@ -489,6 +488,7 @@ document.addEventListener("keydown", (e) => {
 
 // ---- link grabber ----------------------------------------------------------
 function grabbedStatus(p) {
+  if (p.unchecked) return "Not checked yet";
   if (p.duplicate) return "Already in queue";
   if (!p.online) return p.error || "Offline";
   if (p.provider) return PROVIDERS[p.provider];
@@ -526,8 +526,15 @@ function updateGrabButtons() {
 }
 
 $("add-selected").addEventListener("click", async () => {
-  await call("dd_add", { probes: grabbed.filter((p) => p.selected) });
+  const chosen = grabbed.filter((p) => p.selected);
   grabbed = grabbed.filter((p) => !p.selected);
+  const unchecked = chosen.filter((p) => p.unchecked);
+  await call("dd_add", { probes: chosen.filter((p) => !p.unchecked) });
+  // Accepted links are only now sent to a debrid service.
+  if (unchecked.length) {
+    const found = await call("dd_grab", { text: unchecked.map((p) => p.url).join(" "), filesOnly: false });
+    if (found) await start(found);
+  }
   renderGrabbed();
   openGrabber(false);
   refresh();

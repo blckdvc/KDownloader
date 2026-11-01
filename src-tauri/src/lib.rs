@@ -189,24 +189,24 @@ impl Shared {
 
     fn save_settings(&self) {
         if let Ok(s) = self.settings.lock() {
-            let _ = std::fs::write(
-                self.settings_path(),
-                serde_json::to_vec_pretty(&*s).unwrap_or_default(),
+            let _ = direct::engine::write_atomic(
+                &self.settings_path(),
+                &serde_json::to_vec_pretty(&*s).unwrap_or_default(),
             );
         }
     }
     fn save_meta(&self) {
         if let Ok(m) = self.meta.lock() {
-            let _ = std::fs::write(
-                self.meta_path(),
-                serde_json::to_vec_pretty(&*m).unwrap_or_default(),
+            let _ = direct::engine::write_atomic(
+                &self.meta_path(),
+                &serde_json::to_vec_pretty(&*m).unwrap_or_default(),
             );
         }
     }
     fn save_rss_seen(&self) {
         if let Ok(s) = self.rss_seen.lock() {
             let v: Vec<&String> = s.iter().collect();
-            let _ = std::fs::write(self.rss_seen_path(), serde_json::to_vec(&v).unwrap_or_default());
+            let _ = direct::engine::write_atomic(&self.rss_seen_path(), &serde_json::to_vec(&v).unwrap_or_default());
         }
     }
 
@@ -495,12 +495,15 @@ async fn reannounce(state: State<'_, Shared>, id: u64) -> Result<(), String> {
 #[tauri::command]
 async fn remove_torrent(state: State<'_, Shared>, id: u64, delete_files: bool) -> Result<(), String> {
     // Capture the hash first so we can drop app-side metadata too.
-    let hash = state.session.get((id as usize).into()).map(|h| hash_hex(&h));
-    state
-        .session
-        .delete((id as usize).into(), delete_files)
-        .await
-        .map_err(e2s)?;
+    let handle = state.session.get((id as usize).into());
+    let hash = handle.as_ref().map(hash_hex);
+    // Listed before the torrent goes: Pulsar deletes through the Trash, so the
+    // session only forgets it.
+    let files = handle.as_ref().filter(|_| delete_files).map(|h| torrent_paths(h)).unwrap_or_default();
+    state.session.delete((id as usize).into(), false).await.map_err(e2s)?;
+    if !files.is_empty() {
+        direct::engine::to_trash(&files).map_err(e2s)?;
+    }
     if let Some(hash) = hash {
         if let Ok(mut m) = state.meta.lock() {
             m.remove(&hash);
@@ -508,6 +511,15 @@ async fn remove_torrent(state: State<'_, Shared>, id: u64, delete_files: bool) -
         state.save_meta();
     }
     Ok(())
+}
+
+/// A torrent's files on disk, or its own folder when it has one.
+fn torrent_paths(handle: &librqbit::ManagedTorrent) -> Vec<PathBuf> {
+    let root = handle.output_folder().to_path_buf();
+    let files = handle
+        .with_metadata(|m| m.file_infos.iter().map(|f| root.join(&f.relative_filename)).collect::<Vec<_>>())
+        .unwrap_or_default();
+    files.into_iter().filter(|p| p.exists()).collect()
 }
 
 /// Live per-peer list for the selected torrent (Peers tab).
@@ -970,10 +982,7 @@ mod dock {
 // ---------------------------------------------------------------------------
 
 fn load_json<T: for<'de> Deserialize<'de> + Default>(path: &PathBuf) -> T {
-    std::fs::read(path)
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default()
+    direct::engine::read_state(path)
 }
 
 // ---------------------------------------------------------------------------
@@ -1251,6 +1260,8 @@ mod upnp {
     }
 }
 
+const MAX_LOG_BYTES: u64 = 20 * 1024 * 1024;
+
 /// Apps started from Finder get a soft limit of 256 open files, which a session
 /// of multi-file torrents exceeds at startup: peers fail, and so can a torrent's
 /// resume data. Returns the limit in force.
@@ -1283,6 +1294,12 @@ fn open_file_limit_leaves_the_256_default_behind() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Both copies of the app share one session and port: focus the running one.
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let cfg_dir = app
@@ -1293,6 +1310,11 @@ pub fn run() {
 
             // Persistent logging (stderr + a rolling file in the config dir) so
             // connectivity issues (UPnP, listener, peers) are diagnosable.
+            // Restarted past a size cap, as the log only grows while running.
+            let log_file = cfg_dir.join("pulsar.log");
+            if std::fs::metadata(&log_file).is_ok_and(|m| m.len() > MAX_LOG_BYTES) {
+                let _ = std::fs::remove_file(&log_file);
+            }
             let log_path = cfg_dir.join("pulsar.log").to_string_lossy().to_string();
             // init_logging spawns a tokio task, so it must run inside the
             // async runtime (the setup closure itself is not in one).
@@ -1316,8 +1338,20 @@ pub fn run() {
                 let base = app.path().download_dir().unwrap_or_else(|_| std::env::temp_dir());
                 settings.download_dir = base.join("Pulsar").to_string_lossy().to_string();
             }
-            let dl = PathBuf::from(&settings.download_dir);
-            std::fs::create_dir_all(&dl)?;
+            let mut notices = Vec::new();
+            let mut dl = PathBuf::from(&settings.download_dir);
+            if let Err(e) = std::fs::create_dir_all(&dl) {
+                // An unplugged disk mustn't stop the app from opening.
+                let base = app.path().download_dir().unwrap_or_else(|_| std::env::temp_dir());
+                let fallback = base.join("Pulsar");
+                notices.push(format!(
+                    "The download folder {} isn't available ({e}). Using {} for now.",
+                    dl.display(),
+                    fallback.display()
+                ));
+                std::fs::create_dir_all(&fallback)?;
+                dl = fallback;
+            }
 
             let meta: HashMap<String, TMeta> = load_json(&cfg_dir.join("torrents.json"));
             let rss_seen_vec: Vec<String> = load_json(&cfg_dir.join("rss_seen.json"));
@@ -1333,7 +1367,8 @@ pub fn run() {
             };
 
             // Session with fastresume + on-disk persistence so torrents resume.
-            let opts = SessionOptions {
+            let session_opts = |with_listener: bool| {
+                let mut opts = SessionOptions {
                 fastresume: true,
                 persistence: Some(SessionPersistenceConfig::Json {
                     folder: Some(cfg_dir.join("session")),
@@ -1371,10 +1406,21 @@ pub fn run() {
                     ..Default::default()
                 }),
                 ..Default::default()
+                };
+                if !with_listener {
+                    opts.listen = None;
+                }
+                opts
             };
-            let session = tauri::async_runtime::block_on(async move {
-                Session::new_with_opts(dl, opts).await
-            })?;
+            let open_session = |opts| tauri::async_runtime::block_on(Session::new_with_opts(dl.clone(), opts));
+            let session = match open_session(session_opts(true)) {
+                Ok(session) => session,
+                // Usually the port is taken. Downloads still work, just without incoming peers.
+                Err(e) => {
+                    notices.push(format!("Pulsar can't accept incoming peers: {e:#}. Check the port in Settings."));
+                    open_session(session_opts(false))?
+                }
+            };
 
             let http = reqwest::Client::builder()
                 .user_agent("Pulsar/0.2")
@@ -1413,6 +1459,9 @@ pub fn run() {
             let _ = &shared;
 
             direct::init(app, &cfg_dir)?;
+            for notice in notices {
+                app.dialog().message(notice).title("Pulsar").show(|_| {});
+            }
 
             Ok(())
         })
@@ -1438,6 +1487,7 @@ pub fn run() {
             pick_folder,
             direct::dd_grab,
             direct::dd_add,
+            direct::dd_list_unchecked,
             direct::dd_list,
             direct::dd_pause,
             direct::dd_resume,
@@ -1455,6 +1505,11 @@ pub fn run() {
             direct::dd_open_url,
             direct::captcha::dd_open_captcha
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                direct::flush(app);
+            }
+        });
 }

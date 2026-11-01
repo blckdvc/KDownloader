@@ -341,7 +341,7 @@ $("tbody").addEventListener("contextmenu", (e) => {
     { label: `📡 Force re-announce ${ids.length} torrents`, act: () => forSelected("reannounce", ids) },
     { sep: true },
     { label: `✕ Remove ${ids.length} torrents (keep files)`, act: () => removeNow(ids, false) },
-    { label: `🗑 Remove ${ids.length} torrents + delete files`, danger: true, act: () => openRemoveModal(ids) },
+    { label: `🗑 Remove ${ids.length} torrents + move files to Trash`, danger: true, act: () => openRemoveModal(ids) },
   ] : [
     t.paused
       ? { label: "▶ Resume", act: () => invoke("resume_torrent", { id }).then(refresh).catch(showError) }
@@ -353,7 +353,7 @@ $("tbody").addEventListener("contextmenu", (e) => {
     { label: "📋 Copy info hash", act: () => { try { navigator.clipboard.writeText(t.info_hash || ""); } catch (_) {} } },
     { sep: true },
     { label: "✕ Remove (keep files)", act: () => removeNow([id], false) },
-    { label: "🗑 Remove + delete files", danger: true, act: () => removeNow([id], true) },
+    { label: "🗑 Remove + move files to Trash", danger: true, act: () => openRemoveModal([id]) },
   ];
   ctx.innerHTML = items
     .map((it, i) => it.sep ? '<div class="ctx-sep"></div>' : `<div class="ctx-item${it.danger ? " danger" : ""}" data-i="${i}">${it.label}</div>`)
@@ -391,9 +391,7 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "Delete" || e.key === "Backspace") {
     if (!selectedIds.size) return;
     e.preventDefault();
-    // Fast path for one torrent; several always get the confirmation.
-    if ((e.shiftKey || e.metaKey) && selectedIds.size === 1) removeNow([...selectedIds], true);
-    else openRemoveModal();
+    openRemoveModal();
   } else if (e.key === "Escape") {
     hideCtx(); if (!$("detail").hidden) $("detail").hidden = true;
   } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
