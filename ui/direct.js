@@ -143,12 +143,6 @@ async function saveQuickSetting(field, input) {
 $("o-connections").addEventListener("change", (e) => saveQuickSetting("chunks", e.target));
 $("o-active").addEventListener("change", (e) => saveQuickSetting("max_active", e.target));
 
-$("opts-toggle").addEventListener("click", () => {
-  const panel = $("opts");
-  panel.hidden = !panel.hidden;
-  $("opts-toggle").textContent = panel.hidden ? "Options ▾" : "Options ▴";
-});
-
 // Starts what can start, and returns the links left in the grabber.
 async function start(found) {
   const ready = found.filter((p) => p.online && !p.duplicate);

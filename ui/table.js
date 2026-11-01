@@ -110,6 +110,20 @@ function setRememberedRemoval(choice) {
   } catch (e) {}
 }
 
+// The Options panel is one state across both tabs, and is kept between launches.
+const OPTIONS_KEY = "pulsar-options-open";
+function showOptions(open) {
+  for (const prefix of ["", "dd-"]) {
+    document.getElementById(`${prefix}opts`).hidden = !open;
+    document.getElementById(`${prefix}opts-toggle`).textContent = open ? "Options ▴" : "Options ▾";
+  }
+  try { localStorage.setItem(OPTIONS_KEY, open ? "1" : ""); } catch (e) {}
+}
+for (const id of ["opts-toggle", "dd-opts-toggle"]) {
+  document.getElementById(id).addEventListener("click", () => showOptions(document.getElementById("opts").hidden));
+}
+try { showOptions(localStorage.getItem(OPTIONS_KEY) === "1"); } catch (e) {}
+
 // ---- context menu ----------------------------------------------------------
 const contextMenu = document.getElementById("ctxmenu");
 let contextShownAt = 0;
