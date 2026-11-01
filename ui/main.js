@@ -94,10 +94,6 @@ function computeMetrics(t) {
 function addOpts() {
   return { category: val("o-category"), savePath: val("o-savepath") || null, paused: $("o-paused").checked, downKbps: num("o-down"), upKbps: num("o-up") };
 }
-$("opts-toggle").addEventListener("click", () => {
-  const o = $("opts"); o.hidden = !o.hidden;
-  $("opts-toggle").textContent = o.hidden ? "Options ▾" : "Options ▴";
-});
 $("add-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const source = $("magnet").value.trim(); if (!source) return;
