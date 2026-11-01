@@ -233,6 +233,8 @@ struct Inner {
     wake: Notify,
     /// New transfers wait until then, so an outage doesn't burn through the queue.
     hold_until: Mutex<Option<Instant>>,
+    /// Keeps saves in order, so an older state can't replace a newer one.
+    saving: Mutex<()>,
 }
 
 #[derive(Clone)]
@@ -274,6 +276,7 @@ impl Engine {
             limiter,
             wake: Notify::new(),
             hold_until: Mutex::new(None),
+            saving: Mutex::new(()),
         }))
     }
 
@@ -556,6 +559,7 @@ impl Engine {
     }
 
     pub fn save(&self) {
+        let _saving = self.0.saving.lock().unwrap();
         let bytes = {
             let st = self.0.state.lock().unwrap();
             serde_json::to_vec(&*st).expect("state serializes")
@@ -1006,7 +1010,9 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if std::fs::read(path).is_ok_and(|current| current == bytes) {
         return Ok(());
     }
-    let tmp = path.with_extension("tmp");
+    // Unique, as several threads can save at once.
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let tmp = path.with_extension(format!("{}.tmp", NEXT.fetch_add(1, Ordering::Relaxed)));
     let mut file = std::fs::File::create(&tmp)?;
     std::io::Write::write_all(&mut file, bytes)?;
     file.sync_all()?;
@@ -1017,10 +1023,18 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// silently replaced by the defaults on the next save.
 pub fn read_state<T: serde::de::DeserializeOwned + Default>(path: &Path) -> T {
     let Ok(bytes) = std::fs::read(path) else { return T::default() };
-    serde_json::from_slice(&bytes).unwrap_or_else(|_| {
-        let _ = std::fs::rename(path, path.with_extension("corrupt"));
-        T::default()
-    })
+    if let Ok(state) = serde_json::from_slice(&bytes) {
+        return state;
+    }
+    // A complete document followed by stray bytes is still worth keeping.
+    let _ = std::fs::copy(path, path.with_extension("corrupt"));
+    match serde_json::Deserializer::from_slice(&bytes).into_iter::<T>().next() {
+        Some(Ok(state)) => state,
+        _ => {
+            let _ = std::fs::remove_file(path);
+            T::default()
+        }
+    }
 }
 
 /// Deleting moves files to the Trash, so a wrong click stays recoverable.
