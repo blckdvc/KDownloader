@@ -146,8 +146,6 @@ document.querySelectorAll("#view-bandwidth [data-range]").forEach((button) => {
   });
 });
 
-$("mini").addEventListener("click", () => document.getElementById("app-tab-bandwidth").click());
-
 new ResizeObserver(render).observe($("chart"));
 setInterval(record, 1000);
 })();
