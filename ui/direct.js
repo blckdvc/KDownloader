@@ -21,14 +21,16 @@ const LABELS = { queued: "Queued", active: "Downloading", paused: "Paused", wait
 const TORRENT_LINKS = /magnet:\?[^\s"'<>]+|https?:\/\/[^\s"'<>]+\.torrent(?:\?[^\s"'<>]*)?/gi;
 
 let items = [];
+const GRABBED_KEY = "pulsar-dd-grabbed";
 let grabbed = [];
+try { grabbed = JSON.parse(localStorage.getItem(GRABBED_KEY) || "[]"); } catch (e) {}
 let settings = null;
 let selectedIds = new Set();
 let anchorId = null;
 let statusFilter = "all";
 let packageFilter = "";
 let grabberOpen = false;
-let sort = { col: "name", dir: 1 };
+let sort = { col: "queue", dir: 1 }; // queue order until a column is clicked
 let rmTarget = null;
 let errorTimer;
 
@@ -41,6 +43,8 @@ function showMessage(message, notice) {
   errorTimer = setTimeout(() => (box.hidden = true), 6000);
 }
 const showFailure = (e) => showMessage(e);
+const needsExtraction = (i) => i.status === "done" && /^extraction/.test(i.error || "");
+const kindOf = (i) => (needsExtraction(i) ? "error" : KIND[i.status]);
 
 async function call(cmd, args) {
   try { return await invoke(cmd, args); } catch (e) { showFailure(e); }
@@ -65,7 +69,8 @@ function etaSeconds(item) {
 }
 
 function matchStatus(item, filter) {
-  return filter === "all" || KIND[item.status] === filter || (filter === "errored" && item.status === "failed");
+  const kind = kindOf(item);
+  return filter === "all" || kind === filter || (filter === "errored" && kind === "error");
 }
 
 // ---- app tabs and clipboard ------------------------------------------------
@@ -82,7 +87,8 @@ function routeClipboard(text) {
   const torrents = text.match(TORRENT_LINKS) || [];
   if (torrents.length) {
     // Only prefilled: adding a torrent starts sharing, so it stays a user action.
-    document.getElementById("magnet").value = torrents[0];
+    const field = document.getElementById("magnet");
+    if (!field.value.trim()) field.value = torrents[0];
     showApp("torrent");
   }
   const rest = text.replace(TORRENT_LINKS, " ");
@@ -98,8 +104,11 @@ async function collect(text, review = false) {
   const automatic = settings?.auto_start_clipboard && !review;
   const blocked = automatic ? await start(found) : found;
   if (!automatic) grab(found);
-  if (blocked.length) {
+  // Only a captcha calls for attention; anything else waits behind the badge.
+  if (found.some((p) => p.protected)) {
     showApp("direct");
+    openGrabber(true);
+  } else if (blocked.length && !document.getElementById("view-direct").hidden) {
     openGrabber(true);
   }
   refresh();
@@ -190,17 +199,17 @@ function renderSidebar() {
   setHtml($("status-filters"), STATUSES.map(([key, label]) => {
     const n = items.filter((i) => matchStatus(i, key)).length;
     const active = !grabberOpen && statusFilter === key ? "active" : "";
-    return `<li data-status="${key}" class="${active}"><span>${label}</span><span class="cnt">${n}</span></li>`;
+    return `<li data-status="${key}" tabindex="0" class="${active}"><span>${label}</span><span class="cnt">${n}</span></li>`;
   }).join(""));
 
-  setHtml($("grab-filter"), `<li data-grabber="1" class="${grabberOpen ? "active" : ""}"><span>Link Grabber</span><span class="cnt">${grabbed.length}</span></li>`);
+  setHtml($("grab-filter"), `<li data-grabber="1" tabindex="0" class="${grabberOpen ? "active" : ""}"><span>Link Grabber</span><span class="cnt">${grabbed.length}</span></li>`);
 
   const packages = {};
   for (const item of items) packages[item.package] = (packages[item.package] || 0) + 1;
   const names = Object.keys(packages).sort();
-  const all = `<li data-package="" class="${packageFilter === "" ? "active" : ""}"><span>All</span><span class="cnt">${items.length}</span></li>`;
+  const all = `<li data-package="" tabindex="0" class="${packageFilter === "" ? "active" : ""}"><span>All</span><span class="cnt">${items.length}</span></li>`;
   setHtml($("package-filters"), all + names
-    .map((name) => `<li data-package="${esc(name)}" class="${packageFilter === name ? "active" : ""}" title="${esc(name)}"><span>${esc(name)}</span><span class="cnt">${packages[name]}</span></li>`)
+    .map((name) => `<li data-package="${esc(name)}" tabindex="0" class="${packageFilter === name ? "active" : ""}" title="${esc(name)}"><span>${esc(name)}</span><span class="cnt">${packages[name]}</span></li>`)
     .join(""));
 
   const count = document.getElementById("app-grab-count");
@@ -255,7 +264,7 @@ function renderTable() {
     const eta = etaSeconds(item);
     const problem = item.error ? ` title="${esc(item.error)}"` : "";
     const text = item.error ? `${LABELS[item.status]}: ${esc(item.error)}` : LABELS[item.status];
-    const kind = `s-${KIND[item.status]}`;
+    const kind = `s-${kindOf(item)}`;
     return { id: item.id, cls: selectedIds.has(item.id) ? `${kind} selected` : kind, html: `
       <td class="col-name" title="${esc(item.url)}">${esc(item.name)}</td>
       <td class="num">${sizeText(item.size)}</td>
@@ -289,20 +298,11 @@ function select(id) {
 
 const rowOrder = () => [...document.querySelectorAll("#dd-tbody tr[data-id]")].map((tr) => Number(tr.dataset.id));
 
-// Finder-style: ⌘-click toggles a row, ⇧-click selects a range from the anchor.
 function pickRow(id, e) {
-  if (e.metaKey || e.ctrlKey) {
-    const next = new Set(selectedIds);
-    if (!next.delete(id)) next.add(id);
-    anchorId = id;
-    selectRows([...next]);
-  } else if (e.shiftKey && anchorId != null) {
-    const order = rowOrder(), a = order.indexOf(anchorId), b = order.indexOf(id);
-    if (a === -1 || b === -1) select(id);
-    else selectRows(order.slice(Math.min(a, b), Math.max(a, b) + 1));
-  } else {
-    select(id);
-  }
+  const picked = nextSelection(selectedIds, rowOrder(), anchorId, id, e);
+  if (!picked) { select(id); return; }
+  if (e.metaKey || e.ctrlKey) anchorId = id;
+  selectRows(picked);
 }
 
 function reveal(item) {
@@ -328,55 +328,14 @@ document.querySelectorAll("#dd-queue-view th[data-dd-sort]").forEach((th) => {
 });
 
 // ---- resizable columns -----------------------------------------------------
-const COLW_KEY = "pulsar-dd-colw";
-const MIN_NAME_WIDTH = 220;
-const COLW_DEFAULT = { size: 80, progress: 150, status: 150, speed: 92, eta: 72, conns: 56, service: 110, package: 130 };
-let colw = { ...COLW_DEFAULT };
-try { colw = { ...COLW_DEFAULT, ...JSON.parse(localStorage.getItem(COLW_KEY) || "{}") }; } catch (e) {}
-const colEl = (key) => document.querySelector(`col[data-dd-col="${key}"]`);
-const saveColw = () => { try { localStorage.setItem(COLW_KEY, JSON.stringify(colw)); } catch (e) {} };
-// Fixed columns would otherwise squeeze the flexible Name column down to nothing.
-function fitTable() {
-  const fixed = Object.values(colw).reduce((sum, w) => sum + w, 0);
-  document.querySelector("#dd-queue-view .ttable").style.minWidth = `${fixed + MIN_NAME_WIDTH}px`;
-}
-for (const key in COLW_DEFAULT) colEl(key).style.width = `${colw[key]}px`;
-fitTable();
-
-document.querySelectorAll("#dd-queue-view th[data-dd-sort]").forEach((th) => {
-  const key = th.dataset.ddSort;
-  if (!(key in COLW_DEFAULT)) return;
-  const handle = document.createElement("div");
-  handle.className = "col-resize";
-  handle.title = "Drag to resize";
-  th.appendChild(handle);
-  handle.addEventListener("click", (e) => e.stopPropagation());
-  handle.addEventListener("pointerdown", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const startX = e.clientX, startW = colEl(key).getBoundingClientRect().width;
-    handle.classList.add("drag");
-    const move = (ev) => {
-      colw[key] = Math.max(44, Math.round(startW + ev.clientX - startX));
-      colEl(key).style.width = `${colw[key]}px`;
-      fitTable();
-    };
-    const up = () => {
-      handle.classList.remove("drag");
-      document.removeEventListener("pointermove", move);
-      document.removeEventListener("pointerup", up);
-      saveColw();
-    };
-    document.addEventListener("pointermove", move);
-    document.addEventListener("pointerup", up);
-  });
-  handle.addEventListener("dblclick", (e) => {
-    e.stopPropagation();
-    colw[key] = COLW_DEFAULT[key];
-    colEl(key).style.width = `${colw[key]}px`;
-    fitTable();
-    saveColw();
-  });
+resizableColumns({
+  storageKey: "pulsar-dd-colw",
+  defaults: { size: 80, progress: 150, status: 150, speed: 92, eta: 72, conns: 56, service: 110, package: 130 },
+  table: document.querySelector("#dd-queue-view .ttable"),
+  headers: document.querySelectorAll("#dd-queue-view th[data-dd-sort]"),
+  headerKey: (th) => th.dataset.ddSort,
+  column: (key) => document.querySelector(`col[data-dd-col="${key}"]`),
+  minName: 220,
 });
 
 // ---- context menu ----------------------------------------------------------
@@ -396,12 +355,17 @@ $("tbody").addEventListener("contextmenu", (e) => {
     if (picked.some(resumable)) entries.push({ label: `▶ Resume ${n} downloads`, act: () => forEach("dd_resume", picked.filter(resumable)) });
     if (picked.some(pausable)) entries.push({ label: `⏸ Pause ${n} downloads`, act: () => forEach("dd_pause", picked.filter(pausable)) });
     entries.push(
+      { label: `⤒ Move ${n} downloads to top`, act: () => call("dd_move", { ids, toTop: true }).then(refresh) },
+      { label: `⤓ Move ${n} downloads to bottom`, act: () => call("dd_move", { ids, toTop: false }).then(refresh) },
       { label: "📋 Copy links", act: () => { try { navigator.clipboard.writeText(picked.map((i) => i.url).join("\n")); } catch (_) {} } },
       { sep: true },
       { label: `✕ Remove ${n} downloads (keep files)`, act: () => removeNow(ids, false) },
       { label: `🗑 Remove ${n} downloads + move files to Trash`, danger: true, act: () => openRemoveModal(ids) },
     );
   } else {
+  if (needsExtraction(item)) {
+    entries.push({ label: "↻ Retry extraction", act: () => call("dd_retry_extraction", { id }).then(refresh) });
+  }
   if (resumable(item)) {
     entries.push({ label: item.status === "failed" ? "▶ Retry" : "▶ Resume", act: () => call("dd_resume", { id }).then(refresh) });
   }
@@ -409,6 +373,8 @@ $("tbody").addEventListener("contextmenu", (e) => {
     entries.push({ label: "⏸ Pause", act: () => call("dd_pause", { id }).then(refresh) });
   }
   entries.push(
+    { label: "⤒ Move to top of queue", act: () => call("dd_move", { ids: [id], toTop: true }).then(refresh) },
+    { label: "⤓ Move to bottom of queue", act: () => call("dd_move", { ids: [id], toTop: false }).then(refresh) },
     { label: "📂 Show in Finder", act: () => reveal(item) },
     { label: "📋 Copy link", act: () => { try { navigator.clipboard.writeText(item.url); } catch (_) {} } },
     { sep: true },
@@ -416,25 +382,12 @@ $("tbody").addEventListener("contextmenu", (e) => {
     { label: "🗑 Remove + move files to Trash", danger: true, act: () => openRemoveModal([id]) },
   );
   }
-  const menu = document.getElementById("ctxmenu");
-  menu.innerHTML = entries
-    .map((it, i) => (it.sep ? '<div class="ctx-sep"></div>' : `<div class="ctx-item${it.danger ? " danger" : ""}" data-i="${i}">${it.label}</div>`))
-    .join("");
-  menu.hidden = false;
-  ctxShownAt = performance.now();
-  const x = Math.min(e.clientX, window.innerWidth - menu.offsetWidth - 6);
-  const y = Math.min(e.clientY, window.innerHeight - menu.offsetHeight - 6);
-  menu.style.left = `${x}px`;
-  menu.style.top = `${y}px`;
-  menu.querySelectorAll(".ctx-item").forEach((el) => el.addEventListener("click", (ev) => {
-    ev.stopPropagation();
-    hideCtx(true);
-    entries[Number(el.dataset.i)].act();
-  }));
+  showContextMenu(e, entries);
 });
 
 // ---- removal ---------------------------------------------------------------
 function openRemoveModal(ids = [...selectedIds]) {
+  setTimeout(() => $("rm-cancel").focus());
   const picked = items.filter((i) => ids.includes(i.id));
   if (!picked.length) return;
   rmTarget = picked.map((i) => i.id);
@@ -468,7 +421,11 @@ document.addEventListener("keydown", (e) => {
   }
   const tag = (e.target.tagName || "").toLowerCase();
   if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;
-  if (!$("modal").hidden || grabberOpen) return;
+  if (!$("modal").hidden) {
+    if (e.key === "Escape") $("modal").hidden = true;
+    return;
+  }
+  if (grabberOpen) return;
 
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
     e.preventDefault();
@@ -518,6 +475,7 @@ function renderGrabbed() {
     return tr;
   }));
   $("grab-empty").style.display = grabbed.length ? "none" : "flex";
+  try { localStorage.setItem(GRABBED_KEY, JSON.stringify(grabbed)); } catch (e) {}
   updateGrabButtons();
   renderSidebar();
 }
@@ -638,6 +596,18 @@ async function loadSettings() {
 $("reveal").addEventListener("click", () => settings && call("reveal_path", { path: settings.download_dir }));
 
 // ---- poll loop -------------------------------------------------------------
+// A package is done when its last file is: one notification, not twenty-eight.
+function notifyFinished(before, after) {
+  if (!before.length) return;
+  const wasDone = new Set(before.filter((i) => i.status === "done").map((i) => i.id));
+  const fresh = new Set(after.filter((i) => i.status === "done" && !wasDone.has(i.id)).map((i) => i.package));
+  for (const name of fresh) {
+    if (after.every((i) => i.package !== name || i.status === "done")) {
+      call("dd_notify", { title: "Download finished", body: name });
+    }
+  }
+}
+
 let refreshing = false;
 async function refresh() {
   if (refreshing) return;
@@ -645,6 +615,7 @@ async function refresh() {
   const next = await invoke("dd_list").catch(() => null);
   refreshing = false;
   if (!next) return;
+  notifyFinished(items, next);
   items = next;
   const speed = items.reduce((sum, i) => sum + (i.speed || 0), 0);
   window.pulsarDirectSpeed = speed; // read by the Bandwidth tab

@@ -80,6 +80,23 @@ pub fn dd_clear_done(engine: State<Engine>) {
 }
 
 #[tauri::command]
+pub async fn dd_retry_extraction(engine: State<'_, Engine>, id: u64) -> Result<(), String> {
+    engine.inner().clone().retry_extraction(id).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn dd_move(engine: State<Engine>, ids: Vec<u64>, to_top: bool) {
+    engine.move_items(&ids, to_top);
+}
+
+#[tauri::command]
+pub fn dd_notify(app: AppHandle, title: String, body: String) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+    app.notification().builder().title(title).body(body).show().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn dd_get_settings(engine: State<Engine>) -> Settings {
     engine.settings()
 }
@@ -214,6 +231,11 @@ fn watch_clipboard(app: AppHandle, engine: Engine) {
 }
 
 /// Writes the queue on exit, since it is otherwise saved every few seconds.
+/// Direct Download's share of the speed shown on the dock icon.
+pub fn download_speed(app: &AppHandle) -> u64 {
+    app.try_state::<Engine>().map_or(0, |engine| engine.total_speed())
+}
+
 pub fn flush(app: &AppHandle) {
     if let Some(engine) = app.try_state::<Engine>() {
         engine.save();

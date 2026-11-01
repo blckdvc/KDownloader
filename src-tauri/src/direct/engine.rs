@@ -728,6 +728,11 @@ impl Engine {
         }
 
         fs::create_dir_all(&item.dir).await.map_err(io_error)?;
+        if let (true, Some(size), Some(free)) = (fresh, item.size, free_space(&item.dir)) {
+            if size > free {
+                return Err(DlError::Fatal(format!("not enough disk space ({} bytes needed)", size)));
+            }
+        }
         let file = OpenOptions::new()
             .create(true)
             .write(true)
@@ -897,33 +902,102 @@ impl Engine {
             });
             return;
         }
-        let settings = self.settings();
-        let extract = settings.auto_extract && links::is_extractable(&item.name);
         self.update(id, |it| {
             it.output = Some(output.clone());
             it.speed = 0;
-            it.status = if extract { Status::Extracting } else { Status::Done };
+            it.status = Status::Done;
         });
-        if !extract {
-            return;
+        if self.settings().auto_extract {
+            self.extract(id).await;
         }
+    }
+
+    /// Picks the archive `id` belongs to and marks it as being extracted. `None`
+    /// when there is nothing to do yet, as when volumes are still downloading.
+    fn claim_archive(&self, id: u64) -> Option<Claim> {
+        let mut st = self.0.state.lock().unwrap();
+        let item = st.items.iter().find(|i| i.id == id)?;
+        let name = item.name.clone();
+        let dir = item.dir.clone();
+        let volume = links::rar_volume(&name);
+        let members: Vec<usize> = match &volume {
+            Some((set, _)) => st
+                .items
+                .iter()
+                .enumerate()
+                .filter(|(_, i)| i.dir == dir && links::rar_volume(&i.name).is_some_and(|v| &v.0 == set))
+                .map(|(index, _)| index)
+                .collect(),
+            None if links::is_extractable(&name) => st.items.iter().position(|i| i.id == id).into_iter().collect(),
+            None => return None,
+        };
+        if !members.iter().all(|&m| st.items[m].status == Status::Done && st.items[m].output.is_some()) {
+            return None;
+        }
+        let lead = *members
+            .iter()
+            .min_by_key(|&&m| links::rar_volume(&st.items[m].name).map_or(1, |v| v.1))?;
+        if links::rar_volume(&st.items[lead].name).is_some_and(|v| v.1 != 1) {
+            return None;
+        }
+        let volumes: Vec<PathBuf> = members.iter().filter_map(|&m| st.items[m].output.clone()).collect();
+        let first = &mut st.items[lead];
+        first.status = Status::Extracting;
+        first.error = None;
+        let stem = match &volume {
+            Some(_) => first.package.clone(),
+            None => links::archive_stem(&first.name),
+        };
+        Some(Claim { lead: first.id, archive: first.output.clone()?, target: unique_path(&dir, &stem), volumes })
+    }
+
+    async fn extract(&self, id: u64) {
+        let Some(claim) = self.claim_archive(id) else { return };
         // Saved now, so that quitting during extraction doesn't look like a download.
         self.save();
-        let target = unique_path(&item.dir, &links::archive_stem(&item.name));
-        let error = extract_archive(&output, &target).await.err();
+        let error = extract_archive(&claim.archive, &claim.target).await.err();
         if error.is_some() {
-            let _ = fs::remove_dir_all(&target).await;
-        } else if settings.delete_archive {
-            let _ = fs::remove_file(&output).await;
+            let _ = fs::remove_dir_all(&claim.target).await;
+        } else if self.settings().delete_archive {
+            for volume in &claim.volumes {
+                let _ = fs::remove_file(volume).await;
+            }
         }
-        self.update(id, |it| {
+        self.update(claim.lead, |it| {
             it.status = Status::Done;
             it.error = error.map(|e| format!("extraction failed: {e}"));
             if it.error.is_none() {
-                it.output = Some(target);
+                it.output = Some(claim.target);
             }
         });
+        self.save();
     }
+
+    /// Runs a failed or interrupted extraction again.
+    pub async fn retry_extraction(&self, id: u64) {
+        self.extract(id).await;
+    }
+
+    /// Moves downloads to the top or bottom of the queue, keeping their order.
+    pub fn move_items(&self, ids: &[u64], to_top: bool) {
+        {
+            let mut st = self.0.state.lock().unwrap();
+            let (moved, rest): (Vec<Item>, Vec<Item>) = st.items.drain(..).partition(|i| ids.contains(&i.id));
+            st.items = if to_top { [moved, rest].concat() } else { [rest, moved].concat() };
+        }
+        self.save();
+    }
+
+    pub fn total_speed(&self) -> u64 {
+        self.0.state.lock().unwrap().items.iter().map(|i| i.speed).sum()
+    }
+}
+
+struct Claim {
+    lead: u64,
+    archive: PathBuf,
+    target: PathBuf,
+    volumes: Vec<PathBuf>,
 }
 
 /// Replaces a file in one step, so a crash leaves the old version intact. Skips
@@ -1019,10 +1093,39 @@ fn unique_path(dir: &Path, name: &str) -> PathBuf {
         .expect("a free name exists")
 }
 
-/// macOS `tar` is bsdtar: it reads zip, tar, 7z and rar, and by default refuses
-/// paths that climb out of the target folder.
+/// Unpacks a RAR archive, following its volumes from the first one.
+fn extract_rar(archive: &Path, target: &Path) -> Result<(), unrar::error::UnrarError> {
+    let mut open = unrar::Archive::new(archive).open_for_processing()?;
+    while let Some(entry) = open.read_header()? {
+        let name = &entry.entry().filename;
+        let safe = name.components().all(|c| matches!(c, std::path::Component::Normal(_)));
+        open = if safe { entry.extract_with_base(target)? } else { entry.skip()? };
+    }
+    Ok(())
+}
+
+/// Space available to us on the disk holding `dir`.
+fn free_space(dir: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
+    let mut stats: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: `path` is a valid C string and `stats` a struct of the expected type.
+    if unsafe { libc::statvfs(path.as_ptr(), &mut stats) } != 0 {
+        return None;
+    }
+    Some(stats.f_bavail as u64 * stats.f_frsize)
+}
+
+/// RAR goes through unrar, which follows volumes. For the rest, macOS `tar` is
+/// bsdtar: it reads zip, tar and 7z, and by default refuses paths that climb out of
+/// the target folder.
 async fn extract_archive(archive: &Path, target: &Path) -> Result<(), String> {
     fs::create_dir_all(target).await.map_err(|e| e.to_string())?;
+    if links::rar_volume(&archive.to_string_lossy()).is_some() {
+        let (archive, target) = (archive.to_path_buf(), target.to_path_buf());
+        let run = move || extract_rar(&archive, &target).map_err(|e| e.to_string());
+        return tokio::task::spawn_blocking(run).await.map_err(|e| e.to_string())?;
+    }
     let output = tokio::process::Command::new("/usr/bin/tar")
         .arg("-xf")
         .arg(archive)

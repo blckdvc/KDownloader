@@ -577,6 +577,69 @@ async fn start_and_pause_all_touch_only_what_they_should() {
     assert!(fx.engine.list()[0].status == Status::Done);
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn rar_archives_are_extracted() {
+    let server = serve(include_bytes!("testdata/solid.rar").to_vec(), Behavior::default()).await;
+    let fx = fixture();
+    add(&fx.engine, &format!("{}/solid.rar", server.base)).await;
+    let item = wait_for(&fx.engine, |i| i.status == Status::Done && i.output.as_ref().is_some_and(|o| o.is_dir())).await;
+    assert!(item.error.is_none(), "{:?}", item.error);
+    assert!(std::fs::read_dir(item.output.unwrap()).unwrap().count() > 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn volumes_wait_for_each_other_then_report_a_missing_one() {
+    let body = include_bytes!("testdata/archive.part1.rar").to_vec();
+    let server = serve(body, Behavior::default()).await;
+    let fx = fixture();
+    let one = fx.engine.grab(&format!("{}/set.part1.rar", server.base), false).await;
+    fx.engine.add(one);
+    let item = wait_for(&fx.engine, |i| i.status == Status::Done && i.error.is_some()).await;
+    assert!(item.error.unwrap().starts_with("extraction failed:"), "only one volume is here");
+    assert!(item.output.as_ref().unwrap().is_file(), "the volume stays for a retry");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn second_volume_alone_extracts_nothing() {
+    let server = serve(test_bytes(2048), Behavior::default()).await;
+    let fx = fixture();
+    let two = fx.engine.grab(&format!("{}/set.part2.rar", server.base), false).await;
+    fx.engine.add(two);
+    let item = wait_done(&fx.engine).await;
+    assert!(item.error.is_none() && item.output.unwrap().is_file());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn extraction_can_be_retried() {
+    let server = serve(test_bytes(4096), Behavior::default()).await;
+    let fx = fixture();
+    add(&fx.engine, &format!("{}/bad.zip", server.base)).await;
+    let item = wait_for(&fx.engine, |i| i.error.is_some()).await;
+    fx.engine.retry_extraction(item.id).await;
+    let again = fx.engine.list().remove(0);
+    assert!(again.status == Status::Done && again.error.unwrap().starts_with("extraction failed:"));
+}
+
+#[test]
+fn queue_order_can_change() {
+    let dir = std::env::temp_dir().join(format!("pulsar-order-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let engine = Engine::new(dir.join("q.json"), dir.clone());
+    let probe = |n: &str| Probe { url: format!("http://x/{n}"), name: n.into(), package: "p".into(), online: true, ..Default::default() };
+    engine.add(vec![probe("a"), probe("b"), probe("c")]);
+    let ids: Vec<u64> = engine.list().iter().map(|i| i.id).collect();
+    engine.move_items(&[ids[2]], true);
+    assert_eq!(engine.list().iter().map(|i| i.name.clone()).collect::<Vec<_>>(), ["c", "a", "b"]);
+    engine.move_items(&[ids[2]], false);
+    assert_eq!(engine.list().iter().map(|i| i.name.clone()).collect::<Vec<_>>(), ["a", "b", "c"]);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn free_space_reads_the_disk() {
+    assert!(free_space(&std::env::temp_dir()).unwrap() > 0);
+}
+
 #[test]
 fn settings_saved_before_a_new_option_get_its_default() {
     let settings: Settings = serde_json::from_str(r#"{"chunks":2}"#).unwrap();
