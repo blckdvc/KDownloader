@@ -63,7 +63,14 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<
 const toHHMM = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 const fromHHMM = (s) => { const [h, m] = (s || "0:0").split(":").map(Number); return (h || 0) * 60 + (m || 0); };
 
+// Each refresh brings new objects, so a result lasts exactly one refresh.
+const metricsCache = new WeakMap();
 function metrics(t) {
+  let m = metricsCache.get(t);
+  if (!m) { m = computeMetrics(t); metricsCache.set(t, m); }
+  return m;
+}
+function computeMetrics(t) {
   const st = t.stats || {}, live = st.live || null, snap = live ? live.snapshot : null, ps = snap ? snap.peer_stats : null;
   const total = Number(st.total_bytes || 0), done = Number(st.progress_bytes || 0), up = Number(st.uploaded_bytes || 0);
   const dl = t.paused || !live ? 0 : speedBps(live.download_speed);
@@ -108,6 +115,47 @@ document.addEventListener("click", (e) => {
   if (b) { const i = $(b.dataset.target); if (i) browseInto(i); }
 });
 
+// ---- rendering -----------------------------------------------------------
+// Touching only what changed keeps selections, tooltips and clicks intact across
+// the once-a-second refresh.
+const lastHtml = new WeakMap();
+function setHtml(el, html) {
+  if (lastHtml.get(el) === html) return;
+  lastHtml.set(el, html);
+  el.innerHTML = html;
+}
+function setText(el, text) {
+  if (el.textContent !== text) el.textContent = text;
+}
+// Replaces only the entries that changed, so text can be selected and copied.
+function patchList(container, html) {
+  const holder = document.createElement("div");
+  holder.innerHTML = html;
+  const next = holder.firstElementChild, current = container.firstElementChild;
+  if (current?.tagName !== "DL" || current.children.length !== next.children.length) {
+    lastHtml.delete(container);
+    container.replaceChildren(next);
+    return;
+  }
+  [...next.children].forEach((entry, i) => {
+    if (current.children[i].outerHTML !== entry.outerHTML) current.children[i].replaceWith(entry);
+  });
+}
+// rows: [{ id, cls, html }] in display order.
+function patchRows(tbody, rows) {
+  const existing = new Map([...tbody.children].map((tr) => [tr.dataset.id, tr]));
+  rows.forEach((row, i) => {
+    const key = String(row.id);
+    let tr = existing.get(key);
+    if (tr) existing.delete(key);
+    else { tr = document.createElement("tr"); tr.dataset.id = key; }
+    if (tr.className !== row.cls) tr.className = row.cls;
+    setHtml(tr, row.html);
+    if (tbody.children[i] !== tr) tbody.insertBefore(tr, tbody.children[i] || null);
+  });
+  existing.forEach((tr) => tr.remove());
+}
+
 // ---- sidebar -------------------------------------------------------------
 const STATUSES = [
   ["all", "All"], ["downloading", "Downloading"], ["seeding", "Seeding"],
@@ -130,11 +178,10 @@ function matchStatus(t, f) {
   }
 }
 function renderSidebar() {
-  const sc = $("status-filters");
-  sc.innerHTML = STATUSES.map(([k, label]) => {
+  setHtml($("status-filters"), STATUSES.map(([k, label]) => {
     const n = torrents.filter((t) => matchStatus(t, k)).length;
     return `<li data-status="${k}" class="${statusFilter === k ? "active" : ""}"><span>${label}</span><span class="cnt">${n}</span></li>`;
-  }).join("");
+  }).join(""));
 
   const cats = {};
   for (const t of torrents) { const c = t.category || ""; cats[c] = (cats[c] || 0) + 1; }
@@ -142,7 +189,7 @@ function renderSidebar() {
   let catHtml = `<li data-cat="" class="${catFilter === "" ? "active" : ""}"><span>All</span><span class="cnt">${torrents.length}</span></li>`;
   if (cats[""]) catHtml += `<li data-cat="\u0000none" class="${catFilter === "\u0000none" ? "active" : ""}"><span>Uncategorized</span><span class="cnt">${cats[""]}</span></li>`;
   catHtml += catKeys.map((c) => `<li data-cat="${esc(c)}" class="${catFilter === c ? "active" : ""}"><span>${esc(c)}</span><span class="cnt">${cats[c]}</span></li>`).join("");
-  $("cat-filters").innerHTML = catHtml;
+  setHtml($("cat-filters"), catHtml);
 
   const tags = {};
   for (const t of torrents) for (const tg of t.tags || []) tags[tg] = (tags[tg] || 0) + 1;
@@ -150,7 +197,7 @@ function renderSidebar() {
   let tagHtml = `<li data-tag="" class="${tagFilter === "" ? "active" : ""}"><span>All</span><span class="cnt">${torrents.length}</span></li>`;
   tagHtml += tagKeys.length ? tagKeys.map((tg) => `<li data-tag="${esc(tg)}" class="${tagFilter === tg ? "active" : ""}"><span>${esc(tg)}</span><span class="cnt">${tags[tg]}</span></li>`).join("")
     : `<li class="empty-hint">no tags</li>`;
-  $("tag-filters").innerHTML = tagHtml;
+  setHtml($("tag-filters"), tagHtml);
 }
 $("status-filters").addEventListener("click", (e) => { const li = e.target.closest("li[data-status]"); if (li) { statusFilter = li.dataset.status; refresh(); } });
 $("cat-filters").addEventListener("click", (e) => { const li = e.target.closest("li[data-cat]"); if (li) { catFilter = li.dataset.cat; refresh(); } });
@@ -189,14 +236,14 @@ function renderTable() {
   });
   for (const id of selectedIds) if (!torrents.some((t) => t.id === id)) selectedIds.delete(id);
   if (selectedId != null && !selectedIds.has(selectedId)) selectedId = [...selectedIds].pop() ?? null;
-  const tb = $("tbody");
-  tb.innerHTML = rows.map((t) => {
+  patchRows($("tbody"), rows.map((t) => {
     const m = metrics(t);
     const dl = m.dl > 0 ? `${bytes(m.dl)}/s` : "", ul = m.ul > 0 ? `${bytes(m.ul)}/s` : "";
     const eta = t.paused ? "" : etaText(t);
     const ratio = m.ratio === Infinity ? "∞" : m.ratio.toFixed(2);
     const cat = t.category ? `<span class="cat-tag">${esc(t.category)}</span>` : "";
-    return `<tr data-id="${t.id}" class="s-${m.kind} ${selectedIds.has(t.id) ? "selected" : ""}">
+    const cls = selectedIds.has(t.id) ? `s-${m.kind} selected` : `s-${m.kind}`;
+    return { id: t.id, cls, html: `
       <td class="col-name" title="${esc(t.name)}">${esc(t.name)}${cat}</td>
       <td class="num">${bytes(m.total)}</td>
       <td><span class="pbar"><span style="width:${m.pct}%"></span><em>${m.pct.toFixed(1)}%</em></span></td>
@@ -206,12 +253,11 @@ function renderTable() {
       <td class="num">${dl}</td>
       <td class="num">${ul}</td>
       <td class="num">${eta}</td>
-      <td class="num">${ratio}</td>
-    </tr>`;
-  }).join("");
+      <td class="num">${ratio}</td>` };
+  }));
   $("empty").style.display = torrents.length ? "none" : "flex";
   const n = rows.length;
-  $("count").textContent = `${n} torrent${n === 1 ? "" : "s"}${torrents.length !== n ? ` / ${torrents.length}` : ""}`;
+  setText($("count"), `${n} torrent${n === 1 ? "" : "s"}${torrents.length !== n ? ` / ${torrents.length}` : ""}`);
 
   // sort indicators
   document.querySelectorAll("thead th[data-sort]").forEach((th) => {
@@ -436,7 +482,7 @@ function pickRow(id, e) {
 }
 $("detail-close").addEventListener("click", () => { $("detail").hidden = true; });
 document.querySelectorAll(".dtab").forEach((b) => b.addEventListener("click", () => {
-  detailTab = b.dataset.tab;
+  detailTab = b.dataset.tab; contentFor = null;
   document.querySelectorAll(".dtab").forEach((x) => x.classList.toggle("active", x === b));
   loadTab();
 }));
@@ -454,7 +500,7 @@ function renderGeneral() {
   const m = metrics(t);
   const ratio = m.ratio === Infinity ? "∞" : m.ratio.toFixed(3);
   const pieces = m.snap ? m.snap.downloaded_and_checked_pieces : 0;
-  $("detail-body").innerHTML = `<dl class="kv">
+  patchList($("detail-body"), `<dl class="kv">
     <dt>Name</dt><dd>${esc(t.name)}</dd>
     <dt>Status</dt><dd>${LABEL[m.kind] || m.kind}</dd>
     ${m.st.error ? `<dt>Error</dt><dd class="err-text">${esc(m.st.error)}</dd>` : ""}
@@ -469,7 +515,7 @@ function renderGeneral() {
     <dt>Tags</dt><dd>${(t.tags || []).map(esc).join(", ") || "—"}</dd>
     <dt>Save path</dt><dd>${esc(t.output_folder)}</dd>
     <dt>Info hash</dt><dd>${esc(t.info_hash)}</dd>
-  </dl>`;
+  </dl>`);
 }
 async function fetchTrackers() {
   const id = selectedId; $("detail-body").innerHTML = '<p class="muted">Loading…</p>';
@@ -598,19 +644,25 @@ $("reveal").addEventListener("click", async () => {
 });
 
 // ---- poll loop -----------------------------------------------------------
+let refreshing = false;
 async function refresh() {
-  try { torrents = await invoke("list_torrents"); } catch (e) { showError(e); return; }
+  if (refreshing) return;
+  refreshing = true;
+  try { torrents = await invoke("list_torrents"); } catch (e) { showError(e); return; } finally { refreshing = false; }
+  // The Bandwidth tab reads `torrents`, so only the drawing is skipped when hidden.
+  if ($("view-torrent").hidden) return;
   if (selectedId != null && !torrents.some((t) => t.id === selectedId)) { selectedId = null; $("detail").hidden = true; }
   renderSidebar(); renderTable(); syncToolbar();
   let td = 0, tu = 0;
   for (const t of torrents) { const m = metrics(t); td += m.dl; tu += m.ul; }
-  $("totals").innerHTML = `↓ ${bytes(td)}/s&nbsp;&nbsp;↑ ${bytes(tu)}/s`;
+  setText($("totals"), `↓ ${bytes(td)}/s\u00a0\u00a0↑ ${bytes(tu)}/s`);
   // live detail refresh
   if (!$("detail").hidden && selectedId != null) {
     if (detailTab === "general") renderGeneral();
     else if (detailTab === "peers") fetchPeers();
   }
 }
+window.addEventListener("pulsar-tab", refresh);
 async function init() {
   try { settingsCache = await invoke("get_settings"); updateLimitsBadge(); updateDirLabel(); } catch (e) { showError(e); }
   await refresh();

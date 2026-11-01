@@ -31,6 +31,9 @@ const MAX_HTML: usize = 2 * 1024 * 1024;
 const FIRST_WAIT: u64 = 30;
 const LONGEST_WAIT: u64 = 300;
 const OUTAGE_HOLD: Duration = Duration::from_secs(20);
+/// How long a link generated during analysis is trusted when the transfer starts.
+const LINK_FRESH: Duration = Duration::from_secs(10 * 60);
+const TRANSFER_TRIES: usize = 3;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -118,6 +121,8 @@ pub struct Item {
     retry_at: Option<Instant>,
     #[serde(skip)]
     waits: u32,
+    #[serde(skip)]
+    link_fresh_until: Option<Instant>,
 }
 
 impl Item {
@@ -198,6 +203,8 @@ enum DlError {
     Restart,
     /// A network problem, likely to pass: try again later.
     Outage(String),
+    /// The service's generated link stopped working: ask for a new one.
+    Relink,
     Fatal(String),
 }
 
@@ -214,6 +221,7 @@ struct Job {
     part: PathBuf,
     resumable: bool,
     validator: Option<String>,
+    relinkable: bool,
 }
 
 struct Inner {
@@ -424,6 +432,7 @@ impl Engine {
             for p in probes {
                 st.next_id += 1;
                 let package = links::sanitize(&p.package);
+                let link_fresh_until = p.direct.as_ref().map(|_| Instant::now() + LINK_FRESH);
                 let item = Item {
                     id: st.next_id,
                     dir: st.settings.download_dir.join(&package),
@@ -444,6 +453,7 @@ impl Engine {
                     speed: 0,
                     retry_at: None,
                     waits: 0,
+                    link_fresh_until,
                 };
                 st.items.push(item);
             }
@@ -481,19 +491,32 @@ impl Engine {
     }
 
     pub fn pause_all(&self) {
-        for id in self.ids() {
-            self.pause(id);
+        {
+            let mut guard = self.0.state.lock().unwrap();
+            let st = &mut *guard;
+            for item in &mut st.items {
+                if matches!(item.status, Status::Queued | Status::Active | Status::Waiting) {
+                    item.status = Status::Paused;
+                    item.speed = 0;
+                    if let Some(token) = st.running.get(&item.id) {
+                        token.cancel();
+                    }
+                }
+            }
         }
+        self.save();
     }
 
     pub fn resume_all(&self) {
-        for id in self.ids() {
-            self.resume(id);
+        for item in &mut self.0.state.lock().unwrap().items {
+            if matches!(item.status, Status::Paused | Status::Failed | Status::Waiting) {
+                item.status = Status::Queued;
+                item.error = None;
+                item.waits = 0;
+            }
         }
-    }
-
-    fn ids(&self) -> Vec<u64> {
-        self.0.state.lock().unwrap().items.iter().map(|i| i.id).collect()
+        self.save();
+        self.0.wake.notify_one();
     }
 
     /// Drops an item. The partial file always goes; the finished file only
@@ -535,7 +558,7 @@ impl Engine {
     pub fn save(&self) {
         let bytes = {
             let st = self.0.state.lock().unwrap();
-            serde_json::to_vec_pretty(&*st).expect("state serializes")
+            serde_json::to_vec(&*st).expect("state serializes")
         };
         let _ = write_atomic(&self.0.path, &bytes);
     }
@@ -629,15 +652,21 @@ impl Engine {
     }
 
     async fn download(&self, id: u64, token: &CancellationToken) -> Result<(), DlError> {
-        for _ in 0..2 {
+        let mut last = "the file changed on the server";
+        for _ in 0..TRANSFER_TRIES {
             match self.transfer(id, token).await {
                 Err(DlError::Restart) => {
                     self.update(id, |item| item.segments.clear());
                 }
+                // The next pass asks the service for a new link and keeps what we have.
+                Err(DlError::Relink) => {
+                    last = "the service's link stopped working";
+                    self.update(id, |item| item.link_fresh_until = None);
+                }
                 other => return other,
             }
         }
-        Err(DlError::Fatal("the file changed on the server".into()))
+        Err(DlError::Fatal(last.into()))
     }
 
     async fn transfer(&self, id: u64, token: &CancellationToken) -> Result<(), DlError> {
@@ -645,7 +674,9 @@ impl Engine {
         let part = item.part_path();
         let mut fresh = item.segments.is_empty() || !part.exists();
         // Generated links expire and may move servers: get a new one every time.
-        if let Some(provider) = item.provider {
+        let link_is_fresh = item.direct.is_some() && item.link_fresh_until.is_some_and(|t| t > Instant::now());
+        self.update(id, |it| it.link_fresh_until = None);
+        if let Some(provider) = item.provider.filter(|_| !link_is_fresh) {
             let unlocked = tokio::select! {
                 _ = token.cancelled() => return Err(DlError::Cancelled),
                 r = self.0.accounts.unlock(provider, &item.url) => r,
@@ -668,6 +699,9 @@ impl Engine {
                 _ = token.cancelled() => return Err(DlError::Cancelled),
                 p = probe(&self.0.http, &target) => p,
             };
+            if !info.online && link_is_fresh && item.provider.is_some() {
+                return Err(DlError::Relink);
+            }
             if !info.online {
                 let msg = info.error.unwrap_or_else(|| "offline".into());
                 return Err(if info.transient { DlError::Outage(msg) } else { DlError::Fatal(msg) });
@@ -719,6 +753,7 @@ impl Engine {
                 part: part.clone(),
                 resumable: item.resumable,
                 validator: item.validator.clone(),
+                relinkable: item.provider.is_some(),
             };
             set.spawn(self.clone().run_segment(job, group.clone()));
         }
@@ -786,7 +821,7 @@ impl Engine {
             wait: None,
             progressed: false,
         })?;
-        check_status(&resp, job.resumable)?;
+        check_status(&resp, job)?;
 
         let mut file = OpenOptions::new()
             .write(true)
@@ -926,11 +961,17 @@ fn io_error(e: std::io::Error) -> DlError {
     DlError::Fatal(format!("disk: {e}"))
 }
 
-fn check_status(resp: &Response, resumable: bool) -> Result<(), Attempt> {
+fn check_status(resp: &Response, job: &Job) -> Result<(), Attempt> {
     let status = resp.status();
+    let resumable = job.resumable;
     match status {
         StatusCode::PARTIAL_CONTENT if resumable => Ok(()),
         StatusCode::OK if !resumable => Ok(()),
+        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN | StatusCode::NOT_FOUND | StatusCode::GONE
+            if job.relinkable =>
+        {
+            Err(Attempt::Stop(DlError::Relink))
+        }
         StatusCode::OK | StatusCode::RANGE_NOT_SATISFIABLE => Err(Attempt::Stop(DlError::Restart)),
         StatusCode::TOO_MANY_REQUESTS | StatusCode::REQUEST_TIMEOUT => Err(retry_status(resp)),
         s if s.is_server_error() => Err(retry_status(resp)),
