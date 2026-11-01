@@ -106,6 +106,12 @@ struct TMeta {
     /// the ratio resets to 0 on every restart.
     #[serde(default)]
     uploaded_total: u64,
+    /// Last counts the trackers gave. Trackers answer with nothing to an early
+    /// re-announce, so a restart would otherwise blank them for up to an hour.
+    #[serde(default)]
+    tracker_seeds: Option<u64>,
+    #[serde(default)]
+    tracker_peers: Option<u64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -356,15 +362,19 @@ async fn add_torrent_bytes(state: State<'_, Shared>, bytes: Vec<u8>, opts: Optio
 async fn list_torrents(state: State<'_, Shared>) -> Result<Vec<Value>, String> {
     // Lock order: last_up then meta (matches the accounting loop).
     let last_up = state.last_up.lock().map_err(|_| "lock".to_string())?;
-    let meta = state.meta.lock().map_err(|_| "lock".to_string())?;
+    let mut meta = state.meta.lock().map_err(|_| "lock".to_string())?;
+    let fresh_counts = std::cell::RefCell::new(Vec::new());
     let out = state.session.with_torrents(|it| {
         let mut v = Vec::new();
         for (id, handle) in it {
             let stats = handle.stats();
             let mut stats_json = serde_json::to_value(&stats).unwrap_or(Value::Null);
             let swarm = state.session.tracker_swarm(&handle.info_hash());
-            let name = handle.name().unwrap_or_else(|| format!("torrent {id}"));
             let hash = format!("{:?}", handle.info_hash());
+            if let Some(counts) = swarm {
+                fresh_counts.borrow_mut().push((hash.clone(), counts));
+            }
+            let name = handle.name().unwrap_or_else(|| format!("torrent {id}"));
             let folder = handle.output_folder().to_string_lossy().to_string();
             let m = meta.get(&hash).cloned().unwrap_or_default();
             // Show cumulative upload (persisted base + this session's delta).
@@ -384,12 +394,17 @@ async fn list_torrents(state: State<'_, Shared>) -> Result<Vec<Value>, String> {
                 "category": m.category,
                 "tags": m.tags,
                 "stats": stats_json,
-                "tracker_seeds": swarm.map(|s| s.0),
-                "tracker_peers": swarm.map(|s| s.1),
+                "tracker_seeds": swarm.map(|s| s.0).or(m.tracker_seeds),
+                "tracker_peers": swarm.map(|s| s.1).or(m.tracker_peers),
             }));
         }
         v
     });
+    for (hash, (seeds, peers)) in fresh_counts.into_inner() {
+        let known = meta.entry(hash).or_default();
+        known.tracker_seeds = Some(seeds);
+        known.tracker_peers = Some(peers);
+    }
     Ok(out)
 }
 
@@ -942,6 +957,9 @@ pub fn run() {
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
                 direct::flush(app);
+                if let Some(shared) = app.try_state::<Shared>() {
+                    shared.save_meta();
+                }
             }
         });
 }
