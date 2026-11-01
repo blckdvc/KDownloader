@@ -7,9 +7,10 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <div class="titlebar" data-tauri-drag-region>Pulsar</div>
     <nav class="app-tabs">
       <div class="brand">
-        <svg class="logo" viewBox="0 0 24 24" aria-hidden="true">
+        <svg class="logo" viewBox="2.5 2.5 19 19" aria-hidden="true">
           <defs>
             <radialGradient id="lg-orb" cx="40%" cy="36%" r="72%">
               <stop offset="0" stop-color="#f4f9ff"/><stop offset=".35" stop-color="#bcd9ff"/>
@@ -24,8 +25,7 @@
           <ellipse cx="12" cy="12" rx="12" ry="1.8" fill="url(#lg-beam)" transform="rotate(-38 12 12)"/>
           <circle cx="12" cy="12" r="5.5" fill="url(#lg-orb)"/>
         </svg>
-        <h1>Pulsar</h1>
-      </div>
+              </div>
       <button type="button" id="app-tab-torrent" class="app-tab active">Torrent</button>
       <button type="button" id="app-tab-direct" class="app-tab">Direct Download <span id="app-grab-count" class="app-badge" hidden></span></button>
       <button type="button" id="app-tab-bandwidth" class="app-tab">Bandwidth</button>
