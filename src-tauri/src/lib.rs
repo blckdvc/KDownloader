@@ -728,6 +728,8 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        // Remembers the main window only: captcha popups keep their own size.
+        .plugin(tauri_plugin_window_state::Builder::default().with_filter(|label| label == "main").build())
         .setup(|app| {
             let cfg_dir = app
                 .path()
