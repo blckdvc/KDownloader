@@ -7,7 +7,7 @@ pub mod engine;
 pub mod links;
 pub mod providers;
 
-use engine::{Engine, Item, Probe, Settings};
+use engine::{AddOptions, Engine, Item, Probe, Settings};
 use providers::{Account, ApiError, Provider};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -40,8 +40,8 @@ pub fn dd_list_unchecked(engine: State<Engine>, text: String) -> Vec<Probe> {
 }
 
 #[tauri::command]
-pub fn dd_add(engine: State<Engine>, probes: Vec<Probe>) {
-    engine.add(probes);
+pub fn dd_add(engine: State<Engine>, probes: Vec<Probe>, options: Option<AddOptions>) {
+    engine.add_with(probes, options.unwrap_or_default());
 }
 
 #[tauri::command]
@@ -173,6 +173,14 @@ pub fn dd_open_url(url: String) -> Result<(), String> {
         return Err("Only web links can be opened".into());
     }
     std::process::Command::new("open").arg(&url).spawn().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+const DONATION_PAGE: &str = "https://paypal.me/lbenh";
+
+#[tauri::command]
+pub fn open_donation_page() -> Result<(), String> {
+    std::process::Command::new("open").arg(DONATION_PAGE).spawn().map_err(|e| e.to_string())?;
     Ok(())
 }
 

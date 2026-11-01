@@ -568,6 +568,18 @@ async function refresh() {
   }
 }
 window.addEventListener("pulsar-tab", refresh);
+
+// ---- about ---------------------------------------------------------------
+$("about-logo").append(document.querySelector("#about-open .logo").cloneNode(true));
+$("about-open").addEventListener("click", async () => {
+  try { $("about-title").textContent = `Pulsar ${await window.__TAURI__.app.getVersion()}`; } catch (e) {}
+  $("about-modal").hidden = false;
+  $("about-close").focus();
+});
+$("about-close").addEventListener("click", () => ($("about-modal").hidden = true));
+$("about-donate").addEventListener("click", () => invoke("open_donation_page").catch(showError));
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("about-modal").hidden = true; });
+
 // Sidebar entries work from the keyboard, and icon buttons say what they do.
 document.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && e.target.matches?.("li[tabindex]")) e.target.click();

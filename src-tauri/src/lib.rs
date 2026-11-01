@@ -932,6 +932,7 @@ pub fn run() {
             direct::dd_grab,
             direct::dd_add,
             direct::dd_list_unchecked,
+            direct::open_donation_page,
             direct::dd_retry_extraction,
             direct::dd_move,
             direct::dd_notify,

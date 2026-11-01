@@ -683,6 +683,48 @@ async fn rar_size_is_known_before_extraction() {
 }
 
 #[test]
+fn add_options_apply_to_the_batch() {
+    let dir = std::env::temp_dir().join(format!("pulsar-opts-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let engine = Engine::new(dir.join("q.json"), dir.clone());
+    let probe = Probe { url: "http://x/a.zip".into(), name: "a.zip".into(), package: "a".into(), online: true, ..Default::default() };
+    engine.add_with(vec![probe], AddOptions {
+        package: Some("Films".into()),
+        save_to: Some(dir.join("other")),
+        connections: Some(2),
+        paused: true,
+        skip_extraction: true,
+    });
+    let item = engine.list().remove(0);
+    assert!(item.status == Status::Paused && item.skip_extraction);
+    assert_eq!(item.package, "Films");
+    assert_eq!(item.dir, dir.join("other").join("Films"));
+    assert_eq!(item.connection_limit, Some(2));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn connection_option_limits_the_segments() {
+    let body = test_bytes(SIZE);
+    let server = serve(body, Behavior::default()).await;
+    let fx = fixture();
+    let probes = fx.engine.grab(&format!("{}/a.bin", server.base), false).await;
+    fx.engine.add_with(probes, AddOptions { connections: Some(2), ..Default::default() });
+    let item = wait_done(&fx.engine).await;
+    assert_eq!(item.segments.len(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn skipped_extraction_leaves_the_archive() {
+    let server = serve(test_bytes(4096), Behavior::default()).await;
+    let fx = fixture();
+    let probes = fx.engine.grab(&format!("{}/bad.zip", server.base), false).await;
+    fx.engine.add_with(probes, AddOptions { skip_extraction: true, ..Default::default() });
+    let item = wait_done(&fx.engine).await;
+    assert!(item.error.is_none(), "an unread archive can't fail");
+}
+
+#[test]
 fn queue_order_can_change() {
     let dir = std::env::temp_dir().join(format!("pulsar-order-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

@@ -25,7 +25,7 @@ body {
 /* Toolbar */
 .toolbar { flex: 0 0 auto; display: flex; align-items: center; gap: 14px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--border); }
 .brand { display: flex; align-items: center; gap: 7px; }
-.logo { width: 30px; height: 30px; display: block; flex: none; }
+.logo { width: 34px; height: 34px; display: block; flex: none; }
 .add { display: flex; align-items: center; gap: 7px; flex: 1; }
 .add input[type="text"] { flex: 1; min-width: 100px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel-2); color: var(--text); font-size: 13px; outline: none; }
 .add input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
@@ -199,12 +199,12 @@ code { background: var(--track); padding: 1px 5px; border-radius: 4px; font-size
   color: var(--muted); background: var(--panel); user-select: none; -webkit-user-select: none; cursor: default; }
 
 /* App tabs */
-.app-tabs { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; padding: 6px 14px; background: var(--panel); border-bottom: 1px solid var(--border); }
+.app-tabs { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 7px 14px; background: var(--panel); border-bottom: 1px solid var(--border); }
 .app-tabs .brand { margin-right: 10px; }
-.app-tab { border-color: transparent; background: none; }
+.app-tab { border-color: transparent; background: none; font-size: 14.5px; padding: 8px 15px; }
 /* A stroke instead of a bolder weight, which would widen the tab and push its neighbours. */
 .app-tab.active { background: var(--bg); border-color: var(--border); -webkit-text-stroke: 0.35px currentColor; }
-.app-badge { background: var(--accent); color: #fff; border-radius: 9px; padding: 0 6px; font-size: 11px; }
+.app-badge { background: var(--accent); color: #fff; border-radius: 9px; padding: 0 7px; font-size: 12px; }
 .view { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 
 /* Direct Download: everything else comes from the Torrent tab's styles */
@@ -225,14 +225,14 @@ code { background: var(--track); padding: 1px 5px; border-radius: 4px; font-size
 .acct-bad { color: var(--err); }
 .group input[type="password"] { padding: 6px 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); flex: 1; min-width: 0; }
 
-.bw-mini { margin-left: auto; display: flex; align-items: center; gap: 8px; padding: 2px 8px; font-size: 11.5px;
+.bw-mini { margin-left: auto; display: flex; align-items: center; gap: 10px; padding: 3px 8px; font-size: 13px;
   background: none; border-color: transparent; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .bw-mini-line { stroke: var(--accent); }
 /* Live speeds keep a fixed width, so changing numbers never push anything around. */
 #totals, #dd-totals, #bw-mini-text { display: inline-block; text-align: right; white-space: pre; font-variant-numeric: tabular-nums; }
 #totals { width: 200px; }
 #dd-totals { width: 100px; }
-#bw-mini-text { width: 200px; }
+#bw-mini-text { width: 225px; }
 .bw-mini { flex: 0 0 auto; }
 /* Bandwidth: colors validated against both panels by the dataviz checker */
 :root { --bw-torrent-down: #2a78d6; --bw-torrent-up: #eb6834; --bw-direct: #1baf7a; --bw-total: var(--muted); }
@@ -269,3 +269,16 @@ code { background: var(--track); padding: 1px 5px; border-radius: 4px; font-size
 .bw-table td { padding: 4px 8px; border-bottom: 1px solid var(--border); }
 .bw-table .num { text-align: right; }
 .bw-key { margin-right: 8px; vertical-align: 1px; }
+
+/* About */
+.brand { border: none; background: none; padding: 0; cursor: pointer; }
+.brand:hover:not(:disabled) { background: none; opacity: .8; }
+.about .sheet-body { text-align: center; }
+.about h2 { margin: 6px 0 10px; font-size: 17px; }
+.about p { margin: 0 0 10px; line-height: 1.45; }
+#about-logo { display: flex; justify-content: center; }
+#about-logo .logo { width: 72px; height: 72px; }
+.about-donate { border: none; background: none; padding: 0; cursor: pointer; }
+.about-donate:hover:not(:disabled) { background: none; opacity: .85; }
+.about-donate img { display: block; max-width: 300px; width: 100%; height: auto; }
+.about-credits { margin-top: 12px !important; font-size: 11.5px; }
