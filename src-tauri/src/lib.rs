@@ -351,8 +351,9 @@ async fn add_torrent_bytes(state: State<'_, Shared>, bytes: Vec<u8>, opts: Optio
     state.add_bytes(bytes, opts.unwrap_or_default()).await.map_err(e2s)
 }
 
+// Async so that it runs off the main thread: its cost grows with the torrent count.
 #[tauri::command]
-fn list_torrents(state: State<'_, Shared>) -> Result<Vec<Value>, String> {
+async fn list_torrents(state: State<'_, Shared>) -> Result<Vec<Value>, String> {
     // Lock order: last_up then meta (matches the accounting loop).
     let last_up = state.last_up.lock().map_err(|_| "lock".to_string())?;
     let meta = state.meta.lock().map_err(|_| "lock".to_string())?;
@@ -371,6 +372,8 @@ fn list_torrents(state: State<'_, Shared>) -> Result<Vec<Value>, String> {
                 + stats.uploaded_bytes.saturating_sub(last_up.get(&hash).copied().unwrap_or(0));
             if let Some(obj) = stats_json.as_object_mut() {
                 obj.insert("uploaded_bytes".to_string(), json!(total_up));
+                // One entry per file, sent every second, and nothing reads it.
+                obj.remove("file_progress");
             }
             v.push(json!({
                 "id": id,

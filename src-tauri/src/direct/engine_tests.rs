@@ -436,7 +436,7 @@ async fn hoster_link_downloads_through_the_debrid_service() {
     assert_eq!(std::fs::read(item.output.unwrap()).unwrap(), body);
     assert!(done_before > 0);
     let unlocks = mock.requests.lock().unwrap().iter().filter(|r| r.0 == "/unrestrict/link").count();
-    assert_eq!(unlocks, 3, "analysis, start, and resume each need a live link");
+    assert_eq!(unlocks, 2, "the start reuses the analysis's link; only the resume needs a new one");
     assert!(!std::fs::read_to_string(fx.dir.join("queue.json")).unwrap().contains("secret"));
 }
 
@@ -487,7 +487,7 @@ async fn quitting_during_extraction_doesnt_download_again() {
     let item = wait_done(&fx.engine).await;
     sleep(Duration::from_millis(100)).await;
     let path = fx.dir.join("queue.json");
-    let saved = std::fs::read_to_string(&path).unwrap().replace("\"status\": \"done\"", "\"status\": \"extracting\"");
+    let saved = std::fs::read_to_string(&path).unwrap().replace("\"status\":\"done\"", "\"status\":\"extracting\"");
     std::fs::write(&path, saved).unwrap();
     let reborn = Engine::new(path, fx.dir.join("dl"));
     let loaded = reborn.list().remove(0);
@@ -538,6 +538,43 @@ fn deleting_moves_a_file_to_the_trash() {
     to_trash(std::slice::from_ref(&file)).unwrap();
     assert!(!file.exists());
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn dead_service_link_is_replaced_once() {
+    use crate::direct::providers::Provider;
+    let body = test_bytes(4096);
+    let files = serve(body.clone(), Behavior::default()).await;
+    let fresh = format!(r#"{{"filename":"f.bin","filesize":4096,"download":"{}/dl.bin"}}"#, files.base);
+    let (api, mock) = mock_api(&[("/unrestrict/link", 200, &fresh)]).await;
+    let fx = fixture();
+    let accounts = fx.engine.accounts();
+    accounts.set_key(Provider::RealDebrid, Some("secret".into()));
+    accounts.point_at(Provider::RealDebrid, api, Duration::from_millis(5));
+    fx.engine.add(vec![Probe {
+        url: "https://hoster.test/file/abc".into(),
+        name: "f.bin".into(),
+        package: "f".into(),
+        online: true,
+        provider: Some(Provider::RealDebrid),
+        direct: Some(format!("{}/missing.bin", files.base)),
+        ..Default::default()
+    }]);
+    let item = wait_done(&fx.engine).await;
+    assert!(item.status == Status::Done, "{:?}", item.error);
+    assert_eq!(std::fs::read(item.output.unwrap()).unwrap(), body);
+    assert_eq!(mock.requests.lock().unwrap().iter().filter(|r| r.0 == "/unrestrict/link").count(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn start_and_pause_all_touch_only_what_they_should() {
+    let server = serve(test_bytes(2048), Behavior::default()).await;
+    let fx = fixture();
+    add(&fx.engine, &format!("{}/a.bin", server.base)).await;
+    wait_done(&fx.engine).await;
+    fx.engine.pause_all();
+    fx.engine.resume_all();
+    assert!(fx.engine.list()[0].status == Status::Done);
 }
 
 #[test]

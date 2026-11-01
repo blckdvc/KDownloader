@@ -74,6 +74,8 @@ function showApp(name) {
     document.getElementById(`app-tab-${t}`).classList.toggle("active", t === name);
     document.getElementById(`view-${t}`).hidden = t !== name;
   }
+  // Hidden tabs aren't drawn: bring the new one up to date at once.
+  window.dispatchEvent(new Event("pulsar-tab"));
 }
 
 function routeClipboard(text) {
@@ -185,25 +187,25 @@ $("clear-done").addEventListener("click", () => call("dd_clear_done").then(refre
 
 // ---- sidebar ---------------------------------------------------------------
 function renderSidebar() {
-  $("status-filters").innerHTML = STATUSES.map(([key, label]) => {
+  setHtml($("status-filters"), STATUSES.map(([key, label]) => {
     const n = items.filter((i) => matchStatus(i, key)).length;
     const active = !grabberOpen && statusFilter === key ? "active" : "";
     return `<li data-status="${key}" class="${active}"><span>${label}</span><span class="cnt">${n}</span></li>`;
-  }).join("");
+  }).join(""));
 
-  $("grab-filter").innerHTML = `<li data-grabber="1" class="${grabberOpen ? "active" : ""}"><span>Link Grabber</span><span class="cnt">${grabbed.length}</span></li>`;
+  setHtml($("grab-filter"), `<li data-grabber="1" class="${grabberOpen ? "active" : ""}"><span>Link Grabber</span><span class="cnt">${grabbed.length}</span></li>`);
 
   const packages = {};
   for (const item of items) packages[item.package] = (packages[item.package] || 0) + 1;
   const names = Object.keys(packages).sort();
   const all = `<li data-package="" class="${packageFilter === "" ? "active" : ""}"><span>All</span><span class="cnt">${items.length}</span></li>`;
-  $("package-filters").innerHTML = all + names
+  setHtml($("package-filters"), all + names
     .map((name) => `<li data-package="${esc(name)}" class="${packageFilter === name ? "active" : ""}" title="${esc(name)}"><span>${esc(name)}</span><span class="cnt">${packages[name]}</span></li>`)
-    .join("");
+    .join(""));
 
   const count = document.getElementById("app-grab-count");
   count.hidden = grabbed.length === 0;
-  count.textContent = grabbed.length;
+  setText(count, String(grabbed.length));
 }
 
 function openGrabber(open) {
@@ -247,13 +249,14 @@ function renderTable() {
       const x = sortValue(a, sort.col), y = sortValue(b, sort.col);
       return x < y ? -sort.dir : x > y ? sort.dir : 0;
     });
-  $("tbody").innerHTML = rows.map((item) => {
+  patchRows($("tbody"), rows.map((item) => {
     const pct = percent(item);
     const active = item.status === "active";
     const eta = etaSeconds(item);
     const problem = item.error ? ` title="${esc(item.error)}"` : "";
     const text = item.error ? `${LABELS[item.status]}: ${esc(item.error)}` : LABELS[item.status];
-    return `<tr data-id="${item.id}" class="s-${KIND[item.status]} ${selectedIds.has(item.id) ? "selected" : ""}">
+    const kind = `s-${KIND[item.status]}`;
+    return { id: item.id, cls: selectedIds.has(item.id) ? `${kind} selected` : kind, html: `
       <td class="col-name" title="${esc(item.url)}">${esc(item.name)}</td>
       <td class="num">${sizeText(item.size)}</td>
       <td><span class="pbar"><span style="width:${pct}%"></span><em>${pct.toFixed(1)}%</em></span></td>
@@ -262,12 +265,11 @@ function renderTable() {
       <td class="num">${isFinite(eta) ? duration(eta) : ""}</td>
       <td class="num">${active ? item.segments.length : ""}</td>
       <td>${esc(PROVIDERS[item.provider] || "")}</td>
-      <td class="dd-clip" title="${esc(item.package)}">${esc(item.package)}</td>
-    </tr>`;
-  }).join("");
+      <td class="dd-clip" title="${esc(item.package)}">${esc(item.package)}</td>` };
+  }));
   $("empty").style.display = items.length ? "none" : "flex";
   const n = rows.length;
-  $("count").textContent = `${n} download${n === 1 ? "" : "s"}${items.length !== n ? ` / ${items.length}` : ""}`;
+  setText($("count"), `${n} download${n === 1 ? "" : "s"}${items.length !== n ? ` / ${items.length}` : ""}`);
   document.querySelectorAll("#dd-queue-view th[data-dd-sort]").forEach((th) => {
     th.classList.toggle("sorted", th.dataset.ddSort === sort.col);
     th.classList.toggle("asc", th.dataset.ddSort === sort.col && sort.dir === 1);
@@ -636,18 +638,24 @@ async function loadSettings() {
 $("reveal").addEventListener("click", () => settings && call("reveal_path", { path: settings.download_dir }));
 
 // ---- poll loop -------------------------------------------------------------
+let refreshing = false;
 async function refresh() {
+  if (refreshing) return;
+  refreshing = true;
   const next = await invoke("dd_list").catch(() => null);
+  refreshing = false;
   if (!next) return;
   items = next;
+  const speed = items.reduce((sum, i) => sum + (i.speed || 0), 0);
+  window.pulsarDirectSpeed = speed; // read by the Bandwidth tab
+  if (document.getElementById("view-direct").hidden) return;
   for (const id of selectedIds) if (!items.some((i) => i.id === id)) selectedIds.delete(id);
   renderSidebar();
   renderTable();
   syncToolbar();
-  const speed = items.reduce((sum, i) => sum + (i.speed || 0), 0);
-  $("totals").textContent = `↓ ${bytes(speed)}/s`;
-  window.pulsarDirectSpeed = speed; // read by the Bandwidth tab
+  setText($("totals"), `↓ ${bytes(speed)}/s`);
 }
+window.addEventListener("pulsar-tab", refresh);
 
 document.getElementById("app-tab-torrent").addEventListener("click", () => showApp("torrent"));
 document.getElementById("app-tab-direct").addEventListener("click", () => showApp("direct"));
