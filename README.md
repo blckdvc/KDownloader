@@ -112,3 +112,17 @@ clients do, and the permission sticks.
 - RSS "smart episode" filters and per-feed scheduling
 - Search against a legitimate indexer API (opt-in)
 - Global download-folder change without restart
+
+## Direct Download
+
+The **Direct Download** tab is a light download manager next to the torrent client:
+link grabbing, multi-connection HTTP downloads with resume, packages, automatic
+extraction, and premium accounts through the official APIs of Real-Debrid, AllDebrid,
+Premiumize, Debrid-Link, Uploadedpremiumlink, TorBox, Mega-Debrid, Cocoleech and
+Fakirdebrid. API keys are stored in the macOS Keychain.
+
+Copied links are routed automatically: magnets and `.torrent` URLs prefill the Torrent
+tab, and everything else goes to the Link Grabber. The code lives in `src-tauri/src/direct/`
+and `ui/direct.js`; the engine is independent of Tauri and tested with `cargo test direct::`.
+
+Out of scope: captcha solving, dodging hoster limits, container decryption, protected streams.

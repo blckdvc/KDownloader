@@ -1,3 +1,5 @@
+mod direct;
+
 use std::collections::{HashMap, HashSet};
 use std::net::Ipv6Addr;
 use std::num::NonZeroU32;
@@ -1246,6 +1248,35 @@ mod upnp {
     }
 }
 
+/// Apps started from Finder get a soft limit of 256 open files, which a session
+/// of multi-file torrents exceeds at startup: peers fail, and so can a torrent's
+/// resume data. Returns the limit in force.
+#[cfg(unix)]
+fn raise_open_file_limit() -> Option<u64> {
+    // macOS rejects more than OPEN_MAX even when the hard limit is "unlimited".
+    const WANTED: libc::rlim_t = 10240;
+    let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: both calls only read or write the struct we pass.
+    unsafe {
+        if libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) != 0 {
+            return None;
+        }
+        if limit.rlim_cur < WANTED {
+            let raised = libc::rlimit { rlim_cur: WANTED.min(limit.rlim_max), ..limit };
+            if libc::setrlimit(libc::RLIMIT_NOFILE, &raised) == 0 {
+                limit = raised;
+            }
+        }
+    }
+    Some(limit.rlim_cur as u64)
+}
+
+#[cfg(all(test, unix))]
+#[test]
+fn open_file_limit_leaves_the_256_default_behind() {
+    assert!(raise_open_file_limit().unwrap() >= 1024);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1272,6 +1303,9 @@ pub fn run() {
                     },
                 );
             });
+
+            #[cfg(unix)]
+            tracing::info!(limit = ?raise_open_file_limit(), "open file limit");
 
             // Load persisted settings; default the download dir on first run.
             let mut settings: Settings = load_json(&cfg_dir.join("settings.json"));
@@ -1346,7 +1380,7 @@ pub fn run() {
 
             let shared = Shared {
                 session,
-                cfg_dir,
+                cfg_dir: cfg_dir.clone(),
                 settings: Arc::new(Mutex::new(settings)),
                 meta: Arc::new(Mutex::new(meta)),
                 rss_seen: Arc::new(Mutex::new(rss_seen)),
@@ -1375,6 +1409,8 @@ pub fn run() {
             tauri::async_runtime::spawn(dock_loop(shared.clone(), app.handle().clone()));
             let _ = &shared;
 
+            direct::init(app, &cfg_dir)?;
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1396,7 +1432,23 @@ pub fn run() {
             download_dir,
             set_download_dir,
             reveal_path,
-            pick_folder
+            pick_folder,
+            direct::dd_grab,
+            direct::dd_add,
+            direct::dd_list,
+            direct::dd_pause,
+            direct::dd_resume,
+            direct::dd_pause_all,
+            direct::dd_resume_all,
+            direct::dd_remove,
+            direct::dd_clear_done,
+            direct::dd_get_settings,
+            direct::dd_set_settings,
+            direct::dd_list_accounts,
+            direct::dd_connect_account,
+            direct::dd_disconnect_account,
+            direct::dd_open_key_page,
+            direct::dd_reveal
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
