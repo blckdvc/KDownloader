@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header class="toolbar">
+    <nav class="app-tabs">
       <div class="brand">
         <svg class="logo" viewBox="0 0 24 24" aria-hidden="true">
           <defs>
@@ -26,6 +26,12 @@
         </svg>
         <h1>Pulsar</h1>
       </div>
+      <button type="button" id="app-tab-torrent" class="app-tab active">Torrent</button>
+      <button type="button" id="app-tab-direct" class="app-tab">Direct Download <span id="app-grab-count" class="app-badge" hidden></span></button>
+    </nav>
+
+    <div id="view-torrent" class="view">
+    <header class="toolbar">
       <form id="add-form" class="add">
         <input id="magnet" type="text" placeholder="Paste a magnet link or http(s) .torrent URL…" autocomplete="off" spellcheck="false" />
         <button type="submit" class="primary">Add</button>
@@ -117,6 +123,69 @@
     </footer>
 
     <!-- Settings modal -->
+    </div>
+
+    <div id="view-direct" class="view" hidden>
+  <header class="dd-head">
+    <nav>
+      <button id="dd-tab-downloads" class="tab active">Downloads</button>
+      <button id="dd-tab-grabber" class="tab">Link Grabber <span id="dd-grab-count" class="badge" hidden></span></button>
+    </nav>
+    <div class="spacer"></div>
+    <span id="dd-total-speed" class="muted"></span>
+    <button id="dd-open-settings">Settings</button>
+  </header>
+
+  <main id="dd-view-downloads">
+    <div class="toolbar">
+      <button id="dd-resume-all">Start all</button>
+      <button id="dd-pause-all">Pause all</button>
+      <button id="dd-clear-done">Clear finished</button>
+    </div>
+    <div id="dd-packages"></div>
+    <p id="dd-empty" class="empty">No downloads yet. Copy a link, or paste some in the Link Grabber.</p>
+  </main>
+
+  <main id="dd-view-grabber" hidden>
+    <textarea id="dd-links" rows="5" placeholder="Paste hoster or direct links, any text containing them, or a page that lists files…"></textarea>
+    <div class="toolbar">
+      <button id="dd-analyze" class="primary">Analyze</button>
+      <button id="dd-add-selected" disabled>Add selected</button>
+      <button id="dd-clear-grabbed">Clear</button>
+      <span id="dd-grab-status" class="muted"></span>
+    </div>
+    <table>
+      <colgroup><col class="c-check"><col><col class="c-pack"><col class="c-size"><col class="c-state"></colgroup>
+      <thead><tr><th></th><th>File</th><th>Package</th><th>Size</th><th>Status</th></tr></thead>
+      <tbody id="dd-grabbed"></tbody>
+    </table>
+  </main>
+
+  <dialog id="dd-settings">
+    <form method="dialog">
+      <h2>Settings</h2>
+      <label>Download folder
+        <span class="row"><input id="dd-s-dir" type="text"><button type="button" id="dd-s-browse">Browse</button></span>
+      </label>
+      <label>Simultaneous downloads <input id="dd-s-active" type="number" min="1" max="20"></label>
+      <label>Connections per file <input id="dd-s-chunks" type="number" min="1" max="16"></label>
+      <label>Speed limit (KiB/s, 0 = unlimited) <input id="dd-s-limit" type="number" min="0"></label>
+      <label class="check"><input id="dd-s-extract" type="checkbox"> Extract archives when finished</label>
+      <label class="check"><input id="dd-s-delete" type="checkbox"> Delete archive after extraction</label>
+      <label class="check"><input id="dd-s-clipboard" type="checkbox"> Watch the clipboard for links</label>
+      <h3>Premium accounts</h3>
+      <p class="muted hint">Keys are stored in the macOS Keychain. Only links from hosts your account supports are sent to the service.</p>
+      <div id="dd-accounts"></div>
+      <div class="row end">
+        <button value="cancel">Cancel</button>
+        <button id="dd-s-save" value="save" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="dd-toast" hidden></div>
+    </div>
+
     <div id="modal" class="overlay" hidden>
       <div class="sheet">
         <div class="sheet-head"><h2>Settings</h2><button id="modal-close" class="ghost icon">✕</button></div>
@@ -191,5 +260,6 @@
     <div id="ctxmenu" class="ctxmenu" hidden></div>
 
     <script src="main.js"></script>
+    <script src="direct.js"></script>
   </body>
 </html>

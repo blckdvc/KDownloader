@@ -193,3 +193,68 @@ code { background: var(--track); padding: 1px 5px; border-radius: 4px; font-size
 .ctx-item:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
 .ctx-item.danger:hover { background: color-mix(in srgb, var(--err) 18%, transparent); color: var(--err); }
 .ctx-sep { height: 1px; background: var(--border); margin: 4px 6px; }
+
+/* App tabs */
+.app-tabs { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; padding: 6px 14px; background: var(--panel); border-bottom: 1px solid var(--border); }
+.app-tabs .brand { margin-right: 10px; }
+.app-tab { border-color: transparent; background: none; }
+.app-tab.active { background: var(--bg); border-color: var(--border); font-weight: 600; }
+.app-badge { background: var(--accent); color: #fff; border-radius: 9px; padding: 0 6px; font-size: 11px; }
+.view { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+
+/* Direct Download */
+#view-direct { --line: var(--border); --bad: var(--err); }
+#view-direct .dd-head { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
+#view-direct nav { display: flex; gap: 4px; }
+#view-direct .spacer { flex: 1; }
+#view-direct .muted { color: var(--muted); }
+#view-direct button { font: inherit; color: inherit; padding: 5px 11px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); cursor: pointer; }
+#view-direct button:hover:not(:disabled) { border-color: var(--accent); }
+#view-direct button:disabled { opacity: .5; cursor: default; }
+#view-direct button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+#view-direct .tab { border-color: transparent; background: none; }
+#view-direct .tab.active { background: var(--bg); border-color: var(--line); font-weight: 600; }
+#view-direct .badge { background: var(--accent); color: #fff; border-radius: 9px; padding: 0 6px; font-size: 11px; }
+#view-direct main { flex: 1; overflow: auto; padding: 14px; }
+#view-direct .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+#view-direct .empty { text-align: center; color: var(--muted); margin-top: 80px; }
+#view-direct textarea, #view-direct input[type=text], #view-direct input[type=number], #view-direct input[type=password] { font: inherit; color: inherit; width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+#view-direct textarea { resize: vertical; margin-bottom: 10px; }
+#view-direct .package { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 10px; overflow: hidden; }
+#view-direct .package-head { display: flex; gap: 10px; padding: 8px 12px; font-weight: 600; border-bottom: 1px solid var(--line); }
+#view-direct .package-head .muted { margin-left: auto; font-weight: 400; }
+#view-direct .item { padding: 8px 12px; }
+#view-direct .item + .item { border-top: 1px solid var(--line); }
+#view-direct .item-top { display: flex; align-items: center; gap: 12px; }
+#view-direct .item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#view-direct .item-actions { display: flex; gap: 4px; }
+#view-direct .item-actions button { padding: 2px 8px; font-size: 12px; }
+#view-direct .bar { height: 4px; border-radius: 2px; background: var(--line); margin-top: 6px; overflow: hidden; }
+#view-direct .bar > div { height: 100%; background: var(--accent); }
+#view-direct .done .bar > div { background: var(--ok); }
+#view-direct .failed .bar > div { background: var(--bad); }
+#view-direct .paused .bar > div { background: var(--warn); }
+#view-direct .item-meta { display: flex; gap: 12px; margin-top: 4px; font-size: 12px; color: var(--muted); }
+#view-direct .error { color: var(--bad); }
+#view-direct table { width: 100%; table-layout: fixed; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); }
+#view-direct th, #view-direct td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#view-direct th { color: var(--muted); font-weight: 500; }
+#view-direct .c-check { width: 34px; }
+#view-direct .c-pack { width: 26%; }
+#view-direct .c-size { width: 90px; }
+#view-direct .c-state { width: 130px; }
+#view-direct dialog { color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; width: 440px; padding: 18px; }
+#view-direct dialog::backdrop { background: rgba(0,0,0,.35); }
+#view-direct dialog h2 { margin: 0 0 12px; font-size: 16px; }
+#view-direct dialog h3 { margin: 16px 0 2px; font-size: 13px; }
+#view-direct .hint { margin: 0 0 8px; font-size: 12px; }
+#view-direct .account { padding: 8px 0; border-top: 1px solid var(--line); }
+#view-direct .account-head { display: flex; justify-content: space-between; gap: 10px; }
+#view-direct #dd-toast { z-index: 10; }
+#view-direct dialog { max-height: 86vh; overflow: auto; }
+#view-direct dialog label { display: block; margin-bottom: 10px; }
+#view-direct dialog label.check { display: flex; gap: 8px; align-items: center; }
+#view-direct .row { display: flex; gap: 8px; margin-top: 3px; }
+#view-direct .row button { white-space: nowrap; }
+#view-direct .row.end { justify-content: flex-end; margin-top: 14px; }
+#view-direct #dd-toast { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); max-width: 80%; background: var(--bad); color: #fff; padding: 7px 14px; border-radius: 6px; }
