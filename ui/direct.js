@@ -127,13 +127,21 @@ function openCaptchas(found) {
 
 function addOptions() {
   return {
-    package: $("o-package").value.trim() || null,
     save_to: $("o-savepath").value.trim() || null,
-    connections: Number($("o-connections").value) || null,
     paused: $("o-paused").checked,
     skip_extraction: $("o-noextract").checked,
   };
 }
+
+// These two are the app's settings, shown here for quick changes.
+async function saveQuickSetting(field, input) {
+  const value = Number(input.value);
+  if (!settings || !value) { loadSettings(); return; }
+  await call("dd_set_settings", { settings: { ...settings, [field]: value } });
+  loadSettings();
+}
+$("o-connections").addEventListener("change", (e) => saveQuickSetting("chunks", e.target));
+$("o-active").addEventListener("change", (e) => saveQuickSetting("max_active", e.target));
 
 $("opts-toggle").addEventListener("click", () => {
   const panel = $("opts");
@@ -622,6 +630,8 @@ $("modal-save").addEventListener("click", async () => {
 async function loadSettings() {
   settings = await call("dd_get_settings");
   if (!settings) return;
+  $("o-connections").value = settings.chunks;
+  $("o-active").value = settings.max_active;
   const dir = settings.download_dir;
   $("reveal").textContent = `📁 ${dir.split("/").filter(Boolean).pop() || dir}`;
   $("reveal").title = `Reveal ${dir} in Finder`;

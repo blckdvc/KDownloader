@@ -688,29 +688,21 @@ fn add_options_apply_to_the_batch() {
     std::fs::create_dir_all(&dir).unwrap();
     let engine = Engine::new(dir.join("q.json"), dir.clone());
     let probe = Probe { url: "http://x/a.zip".into(), name: "a.zip".into(), package: "a".into(), online: true, ..Default::default() };
-    engine.add_with(vec![probe], AddOptions {
-        package: Some("Films".into()),
-        save_to: Some(dir.join("other")),
-        connections: Some(2),
-        paused: true,
-        skip_extraction: true,
-    });
+    engine.add_with(vec![probe], AddOptions { save_to: Some(dir.join("other")), paused: true, skip_extraction: true });
     let item = engine.list().remove(0);
     assert!(item.status == Status::Paused && item.skip_extraction);
-    assert_eq!(item.package, "Films");
-    assert_eq!(item.dir, dir.join("other").join("Films"));
-    assert_eq!(item.connection_limit, Some(2));
+    assert_eq!(item.dir, dir.join("other").join("a"));
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn connection_option_limits_the_segments() {
-    let body = test_bytes(SIZE);
-    let server = serve(body, Behavior::default()).await;
+async fn connection_setting_limits_the_segments() {
+    let server = serve(test_bytes(SIZE), Behavior::default()).await;
     let fx = fixture();
-    let probes = fx.engine.grab(&format!("{}/a.bin", server.base), false).await;
-    fx.engine.add_with(probes, AddOptions { connections: Some(2), ..Default::default() });
-    let item = wait_done(&fx.engine).await;
+    let mut settings = fx.engine.settings();
+    settings.chunks = 2;
+    fx.engine.set_settings(settings);
+    let item = { add(&fx.engine, &format!("{}/a.bin", server.base)).await; wait_done(&fx.engine).await };
     assert_eq!(item.segments.len(), 2);
 }
 

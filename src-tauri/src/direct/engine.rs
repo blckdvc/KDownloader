@@ -132,8 +132,6 @@ pub struct Item {
     #[serde(default)]
     pub extract_speed: u64,
     #[serde(default)]
-    pub connection_limit: Option<usize>,
-    #[serde(default)]
     pub skip_extraction: bool,
 }
 
@@ -150,9 +148,7 @@ impl Item {
 #[derive(Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct AddOptions {
-    pub package: Option<String>,
     pub save_to: Option<PathBuf>,
-    pub connections: Option<usize>,
     pub paused: bool,
     pub skip_extraction: bool,
 }
@@ -462,7 +458,7 @@ impl Engine {
             let mut st = self.0.state.lock().unwrap();
             for p in probes {
                 st.next_id += 1;
-                let package = links::sanitize(options.package.as_deref().unwrap_or(&p.package));
+                let package = links::sanitize(&p.package);
                 let link_fresh_until = p.direct.as_ref().map(|_| Instant::now() + LINK_FRESH);
                 let item = Item {
                     id: st.next_id,
@@ -488,7 +484,6 @@ impl Engine {
                     extracted: 0,
                     extract_total: None,
                     extract_speed: 0,
-                    connection_limit: options.connections.filter(|c| *c > 0),
                     skip_extraction: options.skip_extraction,
                 };
                 st.items.push(item);
@@ -747,11 +742,7 @@ impl Engine {
                 return Err(DlError::Fatal("The server sent a web page, not a file".into()));
             }
             fresh |= info.size != item.size || info.resumable != item.resumable;
-            let chunks = item
-                .max_chunks
-                .unwrap_or(usize::MAX)
-                .min(item.connection_limit.unwrap_or(usize::MAX))
-                .min(self.settings().chunks);
+            let chunks = item.max_chunks.unwrap_or(usize::MAX).min(self.settings().chunks);
             item = self
                 .update(id, |it| {
                     if fresh {

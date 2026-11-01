@@ -145,12 +145,12 @@
     </header>
 
     <section id="dd-opts" class="opts" hidden>
-      <label>Package <input id="dd-o-package" type="text" placeholder="(from the file name)" /></label>
       <label>Save to
         <span class="withbtn"><input id="dd-o-savepath" type="text" placeholder="(default folder)" />
         <button type="button" class="ghost browse" data-target="dd-o-savepath">Browse…</button></span>
       </label>
-      <label>Connections <input id="dd-o-connections" type="number" min="0" max="16" value="0" title="0 uses the Settings value" /></label>
+      <label>Connections per file <input id="dd-o-connections" type="number" min="1" max="16" /></label>
+      <label>Simultaneous downloads <input id="dd-o-active" type="number" min="1" max="20" /></label>
       <label class="chk"><input id="dd-o-paused" type="checkbox" /> Start paused</label>
       <label class="chk"><input id="dd-o-noextract" type="checkbox" /> Don't extract</label>
     </section>
