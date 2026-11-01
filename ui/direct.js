@@ -60,11 +60,15 @@ function duration(s) {
 }
 
 function percent(item) {
+  if (item.status === "extracting" && item.extract_total) return Math.min(100, (item.extracted / item.extract_total) * 100);
   if (item.status === "done" || item.status === "extracting") return 100;
   return item.size ? Math.min(100, (item.done / item.size) * 100) : 0;
 }
 
 function etaSeconds(item) {
+  if (item.status === "extracting") {
+    return item.extract_total && item.extract_speed ? Math.max(0, item.extract_total - item.extracted) / item.extract_speed : Infinity;
+  }
   return item.status === "active" && item.size && item.speed ? (item.size - item.done) / item.speed : Infinity;
 }
 
@@ -263,14 +267,16 @@ function renderTable() {
     const active = item.status === "active";
     const eta = etaSeconds(item);
     const problem = item.error ? ` title="${esc(item.error)}"` : "";
-    const text = item.error ? `${LABELS[item.status]}: ${esc(item.error)}` : LABELS[item.status];
+    const extracting = item.status === "extracting";
+    const label = extracting && item.extract_total ? `Extracting… ${pct.toFixed(0)}%` : LABELS[item.status];
+    const text = item.error ? `${label}: ${esc(item.error)}` : label;
     const kind = `s-${kindOf(item)}`;
     return { id: item.id, cls: selectedIds.has(item.id) ? `${kind} selected` : kind, html: `
       <td class="col-name" title="${esc(item.url)}">${esc(item.name)}</td>
       <td class="num">${sizeText(item.size)}</td>
       <td><span class="pbar"><span style="width:${pct}%"></span><em>${pct.toFixed(1)}%</em></span></td>
       <td class="dd-status"><span class="st"${problem}>${text}</span></td>
-      <td class="num">${active && item.speed ? `${bytes(item.speed)}/s` : ""}</td>
+      <td class="num">${active && item.speed ? `${bytes(item.speed)}/s` : extracting && item.extract_speed ? `${bytes(item.extract_speed)}/s` : ""}</td>
       <td class="num">${isFinite(eta) ? duration(eta) : ""}</td>
       <td class="num">${active ? item.segments.length : ""}</td>
       <td>${esc(PROVIDERS[item.provider] || "")}</td>
@@ -360,7 +366,7 @@ $("tbody").addEventListener("contextmenu", (e) => {
       { label: "📋 Copy links", act: () => { try { navigator.clipboard.writeText(picked.map((i) => i.url).join("\n")); } catch (_) {} } },
       { sep: true },
       { label: `✕ Remove ${n} downloads (keep files)`, act: () => removeNow(ids, false) },
-      { label: `🗑 Remove ${n} downloads + move files to Trash`, danger: true, act: () => openRemoveModal(ids) },
+      { label: `🗑 Remove ${n} downloads + move files to Trash`, danger: true, act: () => confirmTrash(ids) },
     );
   } else {
   if (needsExtraction(item)) {
@@ -379,7 +385,7 @@ $("tbody").addEventListener("contextmenu", (e) => {
     { label: "📋 Copy link", act: () => { try { navigator.clipboard.writeText(item.url); } catch (_) {} } },
     { sep: true },
     { label: "✕ Remove (keep files)", act: () => removeNow([id], false) },
-    { label: "🗑 Remove + move files to Trash", danger: true, act: () => openRemoveModal([id]) },
+    { label: "🗑 Remove + move files to Trash", danger: true, act: () => confirmTrash([id]) },
   );
   }
   showContextMenu(e, entries);
@@ -387,9 +393,11 @@ $("tbody").addEventListener("contextmenu", (e) => {
 
 // ---- removal ---------------------------------------------------------------
 function openRemoveModal(ids = [...selectedIds]) {
-  setTimeout(() => $("rm-cancel").focus());
   const picked = items.filter((i) => ids.includes(i.id));
   if (!picked.length) return;
+  const saved = rememberedRemoval();
+  if (saved) { removeNow(picked.map((i) => i.id), saved === "trash"); return; }
+  setTimeout(() => $("rm-cancel").focus());
   rmTarget = picked.map((i) => i.id);
   $("rm-name").textContent = picked.length === 1 ? picked[0].name : `${picked.length} downloads selected`;
   $("rm-modal").hidden = false;
@@ -401,8 +409,16 @@ async function removeNow(ids, deleteFile) {
   refresh();
 }
 
+// The menu entry already says what happens, so only a first-time user is asked.
+function confirmTrash(ids) {
+  if (rememberedRemoval()) removeNow(ids, true);
+  else openRemoveModal(ids);
+}
+
 function confirmRemove(deleteFile) {
   $("rm-modal").hidden = true;
+  if ($("rm-remember").checked) setRememberedRemoval(deleteFile ? "trash" : "keep");
+  $("rm-remember").checked = false;
   if (rmTarget != null) removeNow(rmTarget, deleteFile);
   rmTarget = null;
 }
@@ -563,9 +579,11 @@ $("settings-btn").addEventListener("click", async () => {
   $("s-delete").checked = s.delete_archive;
   $("s-clipboard").checked = s.watch_clipboard;
   $("s-autostart").checked = s.auto_start_clipboard;
+  $("s-removal").value = rememberedRemoval() || "";
   $("modal").hidden = false;
   renderAccounts();
 });
+$("s-removal").addEventListener("change", (e) => setRememberedRemoval(e.target.value));
 $("modal-close").addEventListener("click", () => ($("modal").hidden = true));
 $("modal-cancel").addEventListener("click", () => ($("modal").hidden = true));
 $("modal-save").addEventListener("click", async () => {

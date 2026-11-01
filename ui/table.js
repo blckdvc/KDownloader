@@ -97,6 +97,19 @@ function nextSelection(selected, order, anchor, id, e) {
   return null;
 }
 
+// What to do with files when removing, once the user has said: "keep", "trash", or
+// nothing to keep asking. Shared by both tabs.
+const REMOVAL_KEY = "pulsar-removal";
+function rememberedRemoval() {
+  try { return localStorage.getItem(REMOVAL_KEY) || ""; } catch (e) { return ""; }
+}
+function setRememberedRemoval(choice) {
+  try {
+    if (choice) localStorage.setItem(REMOVAL_KEY, choice);
+    else localStorage.removeItem(REMOVAL_KEY);
+  } catch (e) {}
+}
+
 // ---- context menu ----------------------------------------------------------
 const contextMenu = document.getElementById("ctxmenu");
 let contextShownAt = 0;
