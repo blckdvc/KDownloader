@@ -1840,6 +1840,12 @@ impl Session {
 
 impl tracker_comms::TorrentStatsProvider for PeerRxTorrentInfo {
     fn on_swarm_counts(&self, tracker: &str, seeders: u64, leechers: u64) {
+        debug!(info_hash=?self.info_hash, seeders, leechers, "tracker swarm counts");
+        // We just announced ourselves, so a tracker that knows the swarm counts us
+        // at least. All zeros means it didn't say, not that the swarm is gone.
+        if seeders == 0 && leechers == 0 {
+            return;
+        }
         self.session
             .tracker_swarms
             .entry(self.info_hash)

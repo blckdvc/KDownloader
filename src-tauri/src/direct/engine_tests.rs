@@ -667,6 +667,21 @@ async fn extraction_can_be_retried() {
     assert!(again.status == Status::Done && again.error.unwrap().starts_with("extraction failed:"));
 }
 
+#[tokio::test]
+async fn rar_size_is_known_before_extraction() {
+    let dir = std::env::temp_dir().join(format!("pulsar-size-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let archive = dir.join("solid.rar");
+    std::fs::write(&archive, include_bytes!("testdata/solid.rar")).unwrap();
+    let total = unpacked_size(&archive).await.unwrap();
+    assert!(total > 0);
+    let target = dir.join("out");
+    extract_archive(&archive, &target).await.unwrap();
+    assert_eq!(folder_size(&target), total, "the measured folder reaches the announced size");
+    assert_eq!(unpacked_size(&dir.join("a.zip")).await, None);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn queue_order_can_change() {
     let dir = std::env::temp_dir().join(format!("pulsar-order-{}", std::process::id()));

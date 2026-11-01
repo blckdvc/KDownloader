@@ -264,8 +264,10 @@ $("tb-pause").addEventListener("click", () => forSelected("pause_torrent", torre
 
 let rmTarget = null;
 function openRemoveModal(ids = [...selectedIds]) {
-  setTimeout(() => $("rm-cancel").focus());
   const picked = torrents.filter((x) => ids.includes(x.id)); if (!picked.length) return;
+  const saved = rememberedRemoval();
+  if (saved) { removeNow(picked.map((t) => t.id), saved === "trash"); return; }
+  setTimeout(() => $("rm-cancel").focus());
   rmTarget = picked.map((t) => t.id);
   $("rm-name").textContent = picked.length === 1 ? picked[0].name || `torrent ${picked[0].id}` : `${picked.length} torrents selected`;
   $("rm-modal").hidden = false;
@@ -279,8 +281,15 @@ async function removeNow(ids, del) {
   } catch (e) { showError(e); }
 }
 $("tb-remove").addEventListener("click", () => openRemoveModal());
+// The menu entry already says what happens, so only a first-time user is asked.
+function confirmTrash(ids) {
+  if (rememberedRemoval()) removeNow(ids, true);
+  else openRemoveModal(ids);
+}
 async function doRemove(del) {
   $("rm-modal").hidden = true; if (rmTarget == null) return;
+  if ($("rm-remember").checked) setRememberedRemoval(del ? "trash" : "keep");
+  $("rm-remember").checked = false;
   const ids = rmTarget; rmTarget = null;
   await removeNow(ids, del);
 }
@@ -304,7 +313,7 @@ $("tbody").addEventListener("contextmenu", (e) => {
     { label: `📡 Force re-announce ${ids.length} torrents`, act: () => forSelected("reannounce", ids) },
     { sep: true },
     { label: `✕ Remove ${ids.length} torrents (keep files)`, act: () => removeNow(ids, false) },
-    { label: `🗑 Remove ${ids.length} torrents + move files to Trash`, danger: true, act: () => openRemoveModal(ids) },
+    { label: `🗑 Remove ${ids.length} torrents + move files to Trash`, danger: true, act: () => confirmTrash(ids) },
   ] : [
     t.paused
       ? { label: "▶ Resume", act: () => invoke("resume_torrent", { id }).then(refresh).catch(showError) }
@@ -316,7 +325,7 @@ $("tbody").addEventListener("contextmenu", (e) => {
     { label: "📋 Copy info hash", act: () => { try { navigator.clipboard.writeText(t.info_hash || ""); } catch (_) {} } },
     { sep: true },
     { label: "✕ Remove (keep files)", act: () => removeNow([id], false) },
-    { label: "🗑 Remove + move files to Trash", danger: true, act: () => openRemoveModal([id]) },
+    { label: "🗑 Remove + move files to Trash", danger: true, act: () => confirmTrash([id]) },
   ];
   showContextMenu(e, items);
 });

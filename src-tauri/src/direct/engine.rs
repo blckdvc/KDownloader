@@ -123,6 +123,14 @@ pub struct Item {
     waits: u32,
     #[serde(skip)]
     link_fresh_until: Option<Instant>,
+    /// Bytes unpacked so far, the expected total when the archive says, and the
+    /// average rate: only meaningful while extracting.
+    #[serde(default)]
+    pub extracted: u64,
+    #[serde(default)]
+    pub extract_total: Option<u64>,
+    #[serde(default)]
+    pub extract_speed: u64,
 }
 
 impl Item {
@@ -457,6 +465,9 @@ impl Engine {
                     retry_at: None,
                     waits: 0,
                     link_fresh_until,
+                    extracted: 0,
+                    extract_total: None,
+                    extract_speed: 0,
                 };
                 st.items.push(item);
             }
@@ -959,7 +970,15 @@ impl Engine {
         let Some(claim) = self.claim_archive(id) else { return };
         // Saved now, so that quitting during extraction doesn't look like a download.
         self.save();
+        let total = unpacked_size(&claim.archive).await;
+        self.update(claim.lead, |it| {
+            it.extracted = 0;
+            it.extract_total = total;
+            it.extract_speed = 0;
+        });
+        let watcher = self.watch_extraction(claim.lead, claim.target.clone());
         let error = extract_archive(&claim.archive, &claim.target).await.err();
+        watcher.abort();
         if error.is_some() {
             let _ = fs::remove_dir_all(&claim.target).await;
         } else if self.settings().delete_archive {
@@ -969,12 +988,32 @@ impl Engine {
         }
         self.update(claim.lead, |it| {
             it.status = Status::Done;
+            it.extract_speed = 0;
             it.error = error.map(|e| format!("extraction failed: {e}"));
             if it.error.is_none() {
                 it.output = Some(claim.target);
             }
         });
         self.save();
+    }
+
+    /// Measures the unpacked folder, which works even while one huge file is being
+    /// written, when the library reports nothing.
+    fn watch_extraction(&self, id: u64, target: PathBuf) -> tokio::task::JoinHandle<()> {
+        let engine = self.clone();
+        tokio::spawn(async move {
+            let started = Instant::now();
+            loop {
+                sleep(Duration::from_secs(1)).await;
+                let folder = target.clone();
+                let size = tokio::task::spawn_blocking(move || folder_size(&folder)).await.unwrap_or(0);
+                let seconds = started.elapsed().as_secs().max(1);
+                engine.update(id, |it| {
+                    it.extracted = size;
+                    it.extract_speed = size / seconds;
+                });
+            }
+        })
     }
 
     /// Runs a failed or interrupted extraction again.
@@ -1105,6 +1144,32 @@ fn unique_path(dir: &Path, name: &str) -> PathBuf {
         .map(|n| dir.join(format!("{stem} ({n}){ext}")))
         .find(|p| !p.exists())
         .expect("a free name exists")
+}
+
+/// The size of what a RAR archive holds, across its volumes. Other formats would
+/// need a full read of the archive to say.
+async fn unpacked_size(archive: &Path) -> Option<u64> {
+    links::rar_volume(&archive.to_string_lossy())?;
+    let archive = archive.to_path_buf();
+    tokio::task::spawn_blocking(move || -> Option<u64> {
+        let entries = unrar::Archive::new(&archive).open_for_listing().ok()?;
+        Some(entries.flatten().filter(|e| e.is_file()).map(|e| e.unpacked_size).sum())
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+fn folder_size(folder: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(folder) else { return 0 };
+    entries
+        .flatten()
+        .map(|entry| match entry.metadata() {
+            Ok(meta) if meta.is_dir() => folder_size(&entry.path()),
+            Ok(meta) => meta.len(),
+            Err(_) => 0,
+        })
+        .sum()
 }
 
 /// Unpacks a RAR archive, following its volumes from the first one.

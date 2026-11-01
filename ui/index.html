@@ -257,6 +257,13 @@
             <label class="chk"><input id="dd-s-delete" type="checkbox" /> Delete archive after extraction</label>
             <label class="chk"><input id="dd-s-clipboard" type="checkbox" /> Watch the clipboard for links</label>
             <label class="chk"><input id="dd-s-autostart" type="checkbox" /> Start copied links automatically</label>
+            <label class="dd-removal">When removing items
+              <select id="dd-s-removal">
+                <option value="">Always ask</option>
+                <option value="keep">Keep the files</option>
+                <option value="trash">Move the files to Trash</option>
+              </select>
+            </label>
           </section>
           <section class="group">
             <h3>Premium accounts</h3>
@@ -271,7 +278,8 @@
     <div id="dd-rm-modal" class="overlay" hidden>
       <div class="sheet small">
         <div class="sheet-head"><h2>Remove download</h2></div>
-        <div class="sheet-body"><p id="dd-rm-name" class="muted"></p></div>
+        <div class="sheet-body"><p id="dd-rm-name" class="muted"></p>
+          <label class="rm-remember"><input id="dd-rm-remember" type="checkbox" /> Remember my choice</label></div>
         <div class="sheet-foot">
           <button id="dd-rm-cancel" class="ghost">Cancel</button>
           <button id="dd-rm-keep">Remove, keep files</button>
@@ -343,7 +351,8 @@
     <div id="rm-modal" class="overlay" hidden>
       <div class="sheet small">
         <div class="sheet-head"><h2>Remove torrent</h2></div>
-        <div class="sheet-body"><p id="rm-name" class="muted"></p></div>
+        <div class="sheet-body"><p id="rm-name" class="muted"></p>
+          <label class="rm-remember"><input id="rm-remember" type="checkbox" /> Remember my choice</label></div>
         <div class="sheet-foot">
           <button id="rm-cancel" class="ghost">Cancel</button>
           <button id="rm-keep">Remove, keep files</button>
