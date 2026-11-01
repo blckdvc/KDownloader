@@ -159,7 +159,7 @@ impl TrackerComms {
                 "http" | "https" => Some(SupportedTracker::Http(t)),
                 "udp" => Some(SupportedTracker::Udp(t)),
                 _ => {
-                    debug!("unsupported tracker URL: {}", t);
+                    debug!("unsupported tracker URL");
                     None
                 }
             })
@@ -219,7 +219,7 @@ impl TrackerComms {
         let info_hash = self.info_hash;
         match url {
             SupportedTracker::Udp(url) => {
-                let span = debug_span!(parent: None, "udp_tracker", tracker = %url, info_hash = ?info_hash);
+                let span = debug_span!(parent: None, "udp_tracker", tracker = url.host_str().unwrap_or("?"), info_hash = ?info_hash);
                 self.task_single_tracker_monitor_udp(url, client.clone())
                     .instrument(span)
                     .right_future()
@@ -228,7 +228,7 @@ impl TrackerComms {
                 let span = debug_span!(
                     parent: None,
                     "http_tracker",
-                    tracker = %url,
+                    tracker = url.host_str().unwrap_or("?"),
                     info_hash = ?info_hash
                 );
                 self.task_single_tracker_monitor_http(url)
@@ -293,7 +293,7 @@ impl TrackerComms {
         }
         url.set_query(Some(&queries));
 
-        let response: reqwest::Response = self.reqwest_client.get(url).send().await?;
+        let response: reqwest::Response = self.reqwest_client.get(url).send().await.map_err(|e| e.without_url())?;
         if !response.status().is_success() {
             anyhow::bail!("tracker responded with {:?}", response.status());
         }

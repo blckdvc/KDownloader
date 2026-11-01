@@ -28,6 +28,9 @@ const MAX_RETRIES: u32 = 5;
 const PROBE_RETRIES: u32 = 3;
 const MAX_RETRY_AFTER: u64 = 300;
 const MAX_HTML: usize = 2 * 1024 * 1024;
+const FIRST_WAIT: u64 = 30;
+const LONGEST_WAIT: u64 = 300;
+const OUTAGE_HOLD: Duration = Duration::from_secs(20);
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -64,6 +67,8 @@ pub enum Status {
     Queued,
     Active,
     Paused,
+    /// Hit a network problem; starts again by itself.
+    Waiting,
     Extracting,
     Done,
     Failed,
@@ -109,6 +114,10 @@ pub struct Item {
     pub done: u64,
     #[serde(default)]
     pub speed: u64,
+    #[serde(skip)]
+    retry_at: Option<Instant>,
+    #[serde(skip)]
+    waits: u32,
 }
 
 impl Item {
@@ -140,6 +149,8 @@ pub struct Probe {
     pub page: bool,
     /// The page hides its links behind a captcha the user has to solve.
     pub protected: bool,
+    /// Listed from an untrusted page, and not contacted until the user accepts it.
+    pub unchecked: bool,
     #[serde(skip)]
     html: bool,
     #[serde(skip)]
@@ -185,6 +196,8 @@ enum DlError {
     Cancelled,
     /// The server no longer honours our ranges: start over from zero.
     Restart,
+    /// A network problem, likely to pass: try again later.
+    Outage(String),
     Fatal(String),
 }
 
@@ -210,6 +223,8 @@ struct Inner {
     state: Mutex<State>,
     limiter: Limiter,
     wake: Notify,
+    /// New transfers wait until then, so an outage doesn't burn through the queue.
+    hold_until: Mutex<Option<Instant>>,
 }
 
 #[derive(Clone)]
@@ -218,16 +233,20 @@ pub struct Engine(Arc<Inner>);
 impl Engine {
     /// Loads the queue from `path`. Interrupted transfers go back in the queue.
     pub fn new(path: PathBuf, default_dir: PathBuf) -> Self {
-        let mut state: State = std::fs::read(&path)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default();
+        let mut state: State = read_state(&path);
         if state.settings.download_dir.as_os_str().is_empty() {
             state.settings.download_dir = default_dir;
         }
         for item in &mut state.items {
-            if matches!(item.status, Status::Active | Status::Extracting) {
-                item.status = Status::Queued;
+            let downloaded = item.output.as_ref().is_some_and(|o| o.exists());
+            match item.status {
+                // Downloading again would spend quota on a file we already have.
+                Status::Active | Status::Extracting if downloaded => {
+                    item.status = Status::Done;
+                    item.error = Some("extraction interrupted".into());
+                }
+                Status::Active | Status::Extracting | Status::Waiting => item.status = Status::Queued,
+                _ => {}
             }
         }
         let http = Client::builder()
@@ -239,7 +258,15 @@ impl Engine {
         let limiter = Limiter::default();
         limiter.bps.store(state.settings.speed_limit_kib * 1024, Ordering::Relaxed);
         let accounts = Arc::new(Accounts::new(http.clone()));
-        Self(Arc::new(Inner { http, accounts, path, state: Mutex::new(state), limiter, wake: Notify::new() }))
+        Self(Arc::new(Inner {
+            http,
+            accounts,
+            path,
+            state: Mutex::new(state),
+            limiter,
+            wake: Notify::new(),
+            hold_until: Mutex::new(None),
+        }))
     }
 
     /// Scheduler: starts queued items and refreshes speeds. Runs forever.
@@ -292,7 +319,22 @@ impl Engine {
     /// `files_only`, plain web pages are dropped: copying an article's URL
     /// shouldn't offer to download the article.
     pub async fn grab(&self, text: &str, files_only: bool) -> Vec<Probe> {
-        let first = self.probe_all(links::extract_urls(text)).await;
+        let mut urls = links::extract_urls(text);
+        if files_only {
+            // Merely copying a link mustn't visit it: it could be an unsubscribe
+            // link, or a page full of files. Only what is clearly a download goes on.
+            let mut kept = Vec::new();
+            for url in urls {
+                if links::looks_like_file(&url)
+                    || links::is_link_protector(&url)
+                    || self.0.accounts.is_known_hoster(&url).await
+                {
+                    kept.push(url);
+                }
+            }
+            urls = kept;
+        }
+        let first = self.probe_all(urls).await;
         let mut found = Vec::new();
         let mut followed = Vec::new();
         for probe in first {
@@ -327,6 +369,25 @@ impl Engine {
         }
         found.sort_by(|a, b| (&a.package, &a.name).cmp(&(&b.package, &b.name)));
         found
+    }
+
+    /// Lists links from an untrusted page without contacting anything, so that
+    /// a website can't make us spend the user's debrid quota.
+    pub fn list_unchecked(&self, text: &str) -> Vec<Probe> {
+        links::extract_urls(text)
+            .into_iter()
+            .map(|url| {
+                let name = links::name_from_url(&url);
+                Probe {
+                    package: links::package_name(&name),
+                    name,
+                    url,
+                    online: true,
+                    unchecked: true,
+                    ..Default::default()
+                }
+            })
+            .collect()
     }
 
     async fn probe_all(&self, urls: Vec<String>) -> Vec<Probe> {
@@ -381,6 +442,8 @@ impl Engine {
                     max_chunks: p.max_chunks,
                     done: 0,
                     speed: 0,
+                    retry_at: None,
+                    waits: 0,
                 };
                 st.items.push(item);
             }
@@ -393,7 +456,7 @@ impl Engine {
         {
             let mut st = self.0.state.lock().unwrap();
             let Some(item) = st.items.iter_mut().find(|i| i.id == id) else { return };
-            if !matches!(item.status, Status::Queued | Status::Active) {
+            if !matches!(item.status, Status::Queued | Status::Active | Status::Waiting) {
                 return;
             }
             item.status = Status::Paused;
@@ -407,9 +470,10 @@ impl Engine {
 
     pub fn resume(&self, id: u64) {
         self.update(id, |item| {
-            if matches!(item.status, Status::Paused | Status::Failed) {
+            if matches!(item.status, Status::Paused | Status::Failed | Status::Waiting) {
                 item.status = Status::Queued;
                 item.error = None;
+                item.waits = 0;
             }
         });
         self.save();
@@ -446,11 +510,7 @@ impl Engine {
         if let Some(item) = removed {
             let _ = std::fs::remove_file(item.part_path());
             if let (true, Some(output)) = (delete_file, &item.output) {
-                // After extraction the output is the unpacked folder.
-                let _ = match output.is_dir() {
-                    true => std::fs::remove_dir_all(output),
-                    false => std::fs::remove_file(output),
-                };
+                let _ = to_trash(std::slice::from_ref(output));
             }
             let _ = std::fs::remove_dir(&item.dir); // only succeeds when empty
         }
@@ -472,21 +532,21 @@ impl Engine {
         self.update(id, |item| item.clone())
     }
 
-    fn save(&self) {
+    pub fn save(&self) {
         let bytes = {
             let st = self.0.state.lock().unwrap();
             serde_json::to_vec_pretty(&*st).expect("state serializes")
         };
-        let tmp = self.0.path.with_extension("tmp");
-        if std::fs::write(&tmp, bytes).is_ok() {
-            let _ = std::fs::rename(&tmp, &self.0.path);
-        }
+        let _ = write_atomic(&self.0.path, &bytes);
     }
 
     fn update_speeds(&self) -> bool {
         let mut st = self.0.state.lock().unwrap();
         let mut busy = false;
         for item in &mut st.items {
+            if item.status == Status::Waiting && item.retry_at.is_none_or(|at| at <= Instant::now()) {
+                item.status = Status::Queued;
+            }
             if item.status == Status::Active {
                 busy = true;
                 let now = item.bytes_done();
@@ -500,6 +560,9 @@ impl Engine {
     }
 
     fn schedule(&self) {
+        if self.0.hold_until.lock().unwrap().is_some_and(|at| at > Instant::now()) {
+            return;
+        }
         let mut started = Vec::new();
         {
             let mut guard = self.0.state.lock().unwrap();
@@ -532,7 +595,23 @@ impl Engine {
             let _ = fs::remove_file(part).await;
         }
         match result {
-            Ok(()) => self.finish(id).await,
+            Ok(()) => {
+                self.update(id, |item| item.waits = 0);
+                self.finish(id).await
+            }
+            Err(DlError::Outage(msg)) => {
+                *self.0.hold_until.lock().unwrap() = Some(Instant::now() + OUTAGE_HOLD);
+                self.update(id, |item| {
+                    if item.status == Status::Active {
+                        let wait = (FIRST_WAIT << item.waits.min(4)).min(LONGEST_WAIT);
+                        item.status = Status::Waiting;
+                        item.error = Some(msg);
+                        item.speed = 0;
+                        item.waits += 1;
+                        item.retry_at = Some(Instant::now() + Duration::from_secs(wait));
+                    }
+                });
+            }
             Err(DlError::Fatal(msg)) => {
                 self.update(id, |item| {
                     if item.status == Status::Active {
@@ -571,8 +650,10 @@ impl Engine {
                 _ = token.cancelled() => return Err(DlError::Cancelled),
                 r = self.0.accounts.unlock(provider, &item.url) => r,
             };
-            let Unlocked { url, max_chunks, .. } = unlocked
-                .map_err(|e| DlError::Fatal(format!("{}: {}", provider.name(), e.message())))?;
+            let Unlocked { url, max_chunks, .. } = unlocked.map_err(|e| {
+                let msg = format!("{}: {}", provider.name(), e.message());
+                if e.is_network() { DlError::Outage(msg) } else { DlError::Fatal(msg) }
+            })?;
             item = self
                 .update(id, |it| {
                     it.direct = Some(url);
@@ -588,7 +669,8 @@ impl Engine {
                 p = probe(&self.0.http, &target) => p,
             };
             if !info.online {
-                return Err(DlError::Fatal(info.error.unwrap_or_else(|| "offline".into())));
+                let msg = info.error.unwrap_or_else(|| "offline".into());
+                return Err(if info.transient { DlError::Outage(msg) } else { DlError::Fatal(msg) });
             }
             if info.html {
                 return Err(DlError::Fatal("The server sent a web page, not a file".into()));
@@ -663,7 +745,7 @@ impl Engine {
                 }
             };
             if attempts > MAX_RETRIES {
-                return Err(DlError::Fatal(msg));
+                return Err(DlError::Outage(msg));
             }
             let backoff = wait.unwrap_or(Duration::from_secs(1 << (attempts - 1).min(5)));
             tokio::select! {
@@ -790,6 +872,8 @@ impl Engine {
         if !extract {
             return;
         }
+        // Saved now, so that quitting during extraction doesn't look like a download.
+        self.save();
         let target = unique_path(&item.dir, &links::archive_stem(&item.name));
         let error = extract_archive(&output, &target).await.err();
         if error.is_some() {
@@ -805,6 +889,37 @@ impl Engine {
             }
         });
     }
+}
+
+/// Replaces a file in one step, so a crash leaves the old version intact. Skips
+/// the write when nothing changed.
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    if std::fs::read(path).is_ok_and(|current| current == bytes) {
+        return Ok(());
+    }
+    let tmp = path.with_extension("tmp");
+    let mut file = std::fs::File::create(&tmp)?;
+    std::io::Write::write_all(&mut file, bytes)?;
+    file.sync_all()?;
+    std::fs::rename(&tmp, path)
+}
+
+/// Reads a JSON state file. An unreadable one is set aside rather than being
+/// silently replaced by the defaults on the next save.
+pub fn read_state<T: serde::de::DeserializeOwned + Default>(path: &Path) -> T {
+    let Ok(bytes) = std::fs::read(path) else { return T::default() };
+    serde_json::from_slice(&bytes).unwrap_or_else(|_| {
+        let _ = std::fs::rename(path, path.with_extension("corrupt"));
+        T::default()
+    })
+}
+
+/// Deleting moves files to the Trash, so a wrong click stays recoverable.
+pub fn to_trash(paths: &[PathBuf]) -> Result<(), trash::Error> {
+    use trash::macos::{DeleteMethod, TrashContextExtMacos};
+    let mut trash = trash::TrashContext::new();
+    trash.set_delete_method(DeleteMethod::NsFileManager);
+    trash.delete_all(paths)
 }
 
 fn io_error(e: std::io::Error) -> DlError {

@@ -7,12 +7,17 @@ use base64::Engine as _;
 use percent_encoding::percent_decode_str;
 use regex::Regex;
 use std::collections::HashMap;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Semaphore;
+use tokio::time::timeout;
 
 pub const ADDRESS: &str = "127.0.0.1:9666";
 const MAX_REQUEST: usize = 2 * 1024 * 1024;
+const MAX_CONNECTIONS: usize = 16;
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 static KEY_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[0-9a-fA-F]{32}").unwrap());
 
@@ -90,6 +95,11 @@ async fn handle(mut sock: TcpStream, on_links: impl Fn(Received)) -> Option<()> 
         }
         raw.extend_from_slice(&buf[..n]);
     }
+    // A page reaching this port through a domain of its own (DNS rebinding).
+    let host = header(&head, "host").unwrap_or("").rsplit_once(':').map_or("", |h| h.0);
+    if !matches!(host, "127.0.0.1" | "localhost") {
+        return None;
+    }
     let mut parts = head.split_whitespace();
     let (method, path) = (parts.next()?, parts.next()?.split('?').next()?);
     let body = match (method, path) {
@@ -114,9 +124,14 @@ async fn handle(mut sock: TcpStream, on_links: impl Fn(Received)) -> Option<()> 
 }
 
 pub async fn serve(listener: TcpListener, on_links: impl Fn(Received) + Clone + Send + 'static) {
+    let slots = Arc::new(Semaphore::new(MAX_CONNECTIONS));
     while let Ok((sock, _)) = listener.accept().await {
+        let Ok(slot) = slots.clone().try_acquire_owned() else { continue };
         let on_links = on_links.clone();
-        tokio::spawn(async move { handle(sock, on_links).await });
+        tokio::spawn(async move {
+            let _ = timeout(REQUEST_TIMEOUT, handle(sock, on_links)).await;
+            drop(slot);
+        });
     }
 }
 
@@ -164,6 +179,8 @@ mod tests {
             assert_eq!(last.0, "https://filecrypt.cc/x");
             assert_eq!(last.2, trusted);
         }
+        let rebound = client.post(format!("{base}/flash/add")).header("Host", "evil.example:9666").body("urls=x").send().await;
+        assert!(rebound.is_err() || rebound.unwrap().text().await.unwrap_or_default().is_empty());
         let check = client.get(format!("{base}/jdcheck.js")).send().await.unwrap();
         assert_eq!(check.text().await.unwrap(), "jdownloader=true;\r\n");
     }

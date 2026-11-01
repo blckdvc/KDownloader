@@ -455,6 +455,91 @@ async fn real_server_download_matches_a_plain_get() {
     assert!(std::fs::read(item.output.unwrap()).unwrap() == expected);
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn network_failure_waits_instead_of_failing() {
+    let fx = fixture();
+    fx.engine.add(vec![Probe { url: "http://127.0.0.1:9/file.bin".into(), name: "file.bin".into(), package: "file".into(), online: true, ..Default::default() }]);
+    let item = wait_for(&fx.engine, |i| i.status == Status::Waiting).await;
+    assert!(item.error.unwrap().starts_with("connection:"));
+    fx.engine.pause(item.id);
+    assert!(fx.engine.list()[0].status == Status::Paused);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn queue_doesnt_run_through_during_an_outage() {
+    let fx = fixture();
+    let dead = |n: u32| Probe { url: format!("http://127.0.0.1:9/{n}.bin"), name: format!("{n}.bin"), package: "p".into(), online: true, ..Default::default() };
+    let mut settings = fx.engine.settings();
+    settings.max_active = 1;
+    fx.engine.set_settings(settings);
+    fx.engine.add(vec![dead(1), dead(2), dead(3)]);
+    wait_for(&fx.engine, |i| i.status == Status::Waiting).await;
+    sleep(Duration::from_millis(1500)).await;
+    let items = fx.engine.list();
+    assert!(items[1].status == Status::Queued && items[2].status == Status::Queued);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn quitting_during_extraction_doesnt_download_again() {
+    let server = serve(test_bytes(4096), Behavior::default()).await;
+    let fx = fixture();
+    add(&fx.engine, &format!("{}/a.bin", server.base)).await;
+    let item = wait_done(&fx.engine).await;
+    sleep(Duration::from_millis(100)).await;
+    let path = fx.dir.join("queue.json");
+    let saved = std::fs::read_to_string(&path).unwrap().replace("\"status\": \"done\"", "\"status\": \"extracting\"");
+    std::fs::write(&path, saved).unwrap();
+    let reborn = Engine::new(path, fx.dir.join("dl"));
+    let loaded = reborn.list().remove(0);
+    assert!(loaded.status == Status::Done);
+    assert_eq!(loaded.error.as_deref(), Some("extraction interrupted"));
+    assert!(item.output.unwrap().exists());
+}
+
+#[test]
+fn corrupt_queue_is_set_aside_not_overwritten() {
+    let dir = std::env::temp_dir().join(format!("pulsar-corrupt-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("queue.json");
+    std::fs::write(&path, "{ not json").unwrap();
+    let engine = Engine::new(path.clone(), dir.clone());
+    assert!(engine.list().is_empty());
+    assert_eq!(std::fs::read_to_string(dir.join("queue.corrupt")).unwrap(), "{ not json");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn copying_a_link_visits_only_likely_downloads() {
+    let (base, mock) = mock_api(&[("/unsubscribe", 200, "<p>done</p>"), ("/report.pdf", 200, "<p>x</p>")]).await;
+    let fx = fixture();
+    let text = format!("{base}/unsubscribe {base}/report.pdf");
+    fx.engine.grab(&text, true).await;
+    let requests = mock.requests.lock().unwrap();
+    assert!(requests.iter().any(|r| r.0 == "/report.pdf"));
+    assert!(!requests.iter().any(|r| r.0 == "/unsubscribe"), "a copied link must not be visited");
+}
+
+#[test]
+fn unchecked_links_are_listed_without_contact() {
+    let engine = Engine::new(std::env::temp_dir().join("pulsar-unchecked.json"), PathBuf::from("/tmp"));
+    let probes = engine.list_unchecked("https://rapidgator.net/file/abc/film.rar");
+    assert!(probes[0].unchecked && probes[0].provider.is_none());
+    assert_eq!(probes[0].name, "film.rar");
+}
+
+/// Touches the user's real Trash: `cargo test -- --ignored deleting`.
+#[test]
+#[ignore]
+fn deleting_moves_a_file_to_the_trash() {
+    let dir = std::env::temp_dir().join(format!("pulsar-trash-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("pulsar-trash-test.txt");
+    std::fs::write(&file, "x").unwrap();
+    to_trash(std::slice::from_ref(&file)).unwrap();
+    assert!(!file.exists());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn settings_saved_before_a_new_option_get_its_default() {
     let settings: Settings = serde_json::from_str(r#"{"chunks":2}"#).unwrap();

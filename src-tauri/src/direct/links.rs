@@ -45,6 +45,11 @@ pub fn is_affiliate_link(url: &str) -> bool {
     Url::parse(url).is_ok_and(|u| AFFILIATE_RE.is_match(u.path()))
 }
 
+/// Whether a URL's path ends like a file, so fetching it can't trigger a page's action.
+pub fn looks_like_file(url: &str) -> bool {
+    Url::parse(url).is_ok_and(|u| FILE_RE.is_match(u.path()))
+}
+
 pub fn is_link_protector(url: &str) -> bool {
     let Some(host) = Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase))
     else {
