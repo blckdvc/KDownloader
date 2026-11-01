@@ -227,6 +227,7 @@ code { background: var(--track); padding: 1px 5px; border-radius: 4px; font-size
 
 .bw-mini { margin-left: auto; display: flex; align-items: center; gap: 10px; padding: 3px 8px; font-size: 13px;
   background: none; border-color: transparent; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bw-mini.active { background: var(--bg); border-color: var(--border); }
 .bw-mini-line { stroke: var(--accent); }
 /* Live speeds keep a fixed width, so changing numbers never push anything around. */
 #totals, #dd-totals, #bw-mini-text { display: inline-block; text-align: right; white-space: pre; font-variant-numeric: tabular-nums; }

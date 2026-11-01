@@ -80,7 +80,8 @@ function matchStatus(item, filter) {
 // ---- app tabs and clipboard ------------------------------------------------
 function showApp(name) {
   for (const t of ["torrent", "direct", "bandwidth"]) {
-    document.getElementById(`app-tab-${t}`).classList.toggle("active", t === name);
+    const tab = t === "bandwidth" ? "bw-mini" : `app-tab-${t}`;
+    document.getElementById(tab).classList.toggle("active", t === name);
     document.getElementById(`view-${t}`).hidden = t !== name;
   }
   // Hidden tabs aren't drawn: bring the new one up to date at once.
@@ -668,7 +669,7 @@ window.addEventListener("pulsar-tab", refresh);
 
 document.getElementById("app-tab-torrent").addEventListener("click", () => showApp("torrent"));
 document.getElementById("app-tab-direct").addEventListener("click", () => showApp("direct"));
-document.getElementById("app-tab-bandwidth").addEventListener("click", () => showApp("bandwidth"));
+document.getElementById("bw-mini").addEventListener("click", () => showApp("bandwidth"));
 listen("clipboard", (event) => routeClipboard(event.payload));
 listen("protected-links", (event) => {
   grabbed = grabbed.filter((p) => p.url !== event.payload.source);
