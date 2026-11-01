@@ -497,6 +497,53 @@ async fn quitting_during_extraction_doesnt_download_again() {
 }
 
 #[test]
+fn simultaneous_saves_never_leave_a_broken_file() {
+    let dir = std::env::temp_dir().join(format!("pulsar-saves-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("queue.json");
+    let engine = Engine::new(path.clone(), dir.clone());
+    let probe = |n: usize| Probe { url: format!("http://x/{n}"), name: format!("{n}"), package: "p".into(), online: true, ..Default::default() };
+    let mut writers = Vec::new();
+    for t in 0..8 {
+        let engine = engine.clone();
+        writers.push(std::thread::spawn(move || {
+            for n in 0..40 {
+                engine.add(vec![probe(t * 100 + n)]);
+                engine.save();
+            }
+        }));
+    }
+    for _ in 0..300 {
+        if let Ok(bytes) = std::fs::read(&path) {
+            serde_json::from_slice::<serde_json::Value>(&bytes).expect("a complete file at every moment");
+        }
+    }
+    for writer in writers {
+        writer.join().unwrap();
+    }
+    engine.save();
+    let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(saved["items"].as_array().unwrap().len(), 320, "the last save wins");
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "no temporary file left behind");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn stray_bytes_after_a_complete_queue_lose_nothing() {
+    let dir = std::env::temp_dir().join(format!("pulsar-stray-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("queue.json");
+    let engine = Engine::new(path.clone(), dir.clone());
+    engine.add(vec![Probe { url: "http://x/a".into(), name: "a".into(), package: "p".into(), online: true, ..Default::default() }]);
+    let mut bytes = std::fs::read(&path).unwrap();
+    bytes.extend_from_slice(b"16,\"done\":0,\"speed\":0}]}");
+    std::fs::write(&path, bytes).unwrap();
+    assert_eq!(Engine::new(path, dir.clone()).list().len(), 1);
+    assert!(dir.join("queue.corrupt").exists(), "the damaged file stays available");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn corrupt_queue_is_set_aside_not_overwritten() {
     let dir = std::env::temp_dir().join(format!("pulsar-corrupt-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

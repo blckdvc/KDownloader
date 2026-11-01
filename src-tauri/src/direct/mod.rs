@@ -245,15 +245,16 @@ pub fn flush(app: &AppHandle) {
 pub fn init(app: &mut tauri::App, config_dir: &Path) -> tauri::Result<()> {
     let downloads = app.path().download_dir()?;
     let engine = Engine::new(config_dir.join("direct-queue.json"), downloads);
-    // A read can wait on the user's answer to a Keychain prompt: not on the main thread.
+    // A read can wait on the user's answer to a Keychain prompt: not on the main
+    // thread. The queue starts after it, as restored items need their account.
     let keys = engine.clone();
     std::thread::spawn(move || {
         for provider in Provider::ALL {
             let key = keychain(provider).ok().and_then(|e| e.get_password().ok());
             keys.accounts().set_key(provider, key);
         }
+        tauri::async_runtime::spawn(keys.run_loop());
     });
-    tauri::async_runtime::spawn(engine.clone().run_loop());
     watch_clipboard(app.handle().clone(), engine.clone());
     captcha::start_click_n_load(app.handle().clone());
     app.manage(engine);
