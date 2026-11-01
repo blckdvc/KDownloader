@@ -25,8 +25,7 @@ body {
 /* Toolbar */
 .toolbar { flex: 0 0 auto; display: flex; align-items: center; gap: 14px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--border); }
 .brand { display: flex; align-items: center; gap: 7px; }
-.brand h1 { font-size: 14px; font-weight: 650; margin: 0; }
-.logo { width: 18px; height: 18px; display: block; flex: none; }
+.logo { width: 30px; height: 30px; display: block; flex: none; }
 .add { display: flex; align-items: center; gap: 7px; flex: 1; }
 .add input[type="text"] { flex: 1; min-width: 100px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel-2); color: var(--text); font-size: 13px; outline: none; }
 .add input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
@@ -194,6 +193,10 @@ code { background: var(--track); padding: 1px 5px; border-radius: 4px; font-size
 .ctx-item:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
 .ctx-item.danger:hover { background: color-mix(in srgb, var(--err) 18%, transparent); color: var(--err); }
 .ctx-sep { height: 1px; background: var(--border); margin: 4px 6px; }
+
+/* Title bar: drawn by the page, as macOS leaves its own title left-aligned. */
+.titlebar { flex: 0 0 auto; height: 28px; line-height: 28px; text-align: center; font-size: 13px; font-weight: 600;
+  color: var(--muted); background: var(--panel); user-select: none; -webkit-user-select: none; cursor: default; }
 
 /* App tabs */
 .app-tabs { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; padding: 6px 14px; background: var(--panel); border-bottom: 1px solid var(--border); }
