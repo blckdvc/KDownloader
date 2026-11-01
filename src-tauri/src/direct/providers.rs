@@ -201,6 +201,13 @@ impl Accounts {
         self.supports(Provider::RealDebrid, &host).await
     }
 
+    /// The domains of known file hosters, from the same public list.
+    pub async fn hoster_domains(&self) -> Vec<String> {
+        self.supports(Provider::RealDebrid, "").await;
+        let hosts = self.hosts.lock().unwrap();
+        hosts.get(&Provider::RealDebrid).map(|(_, d)| d.clone()).unwrap_or_default()
+    }
+
     async fn supports(&self, provider: Provider, host: &str) -> bool {
         let cached = self.hosts.lock().unwrap().get(&provider).cloned();
         let domains = match cached {

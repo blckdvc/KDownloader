@@ -1,6 +1,8 @@
 //! The Direct Download tab: HTTP downloads and premium link generators.
 //! `engine`, `links` and `providers` know nothing about Tauri or torrents.
 
+pub mod captcha;
+pub mod cnl;
 pub mod engine;
 pub mod links;
 pub mod providers;
@@ -142,10 +144,31 @@ pub fn dd_open_key_page(provider: Provider) -> Result<(), String> {
     Ok(())
 }
 
+/// Opens a web page the app can't handle, such as a captcha-protected one.
+#[tauri::command]
+pub fn dd_open_url(url: String) -> Result<(), String> {
+    if !url.starts_with("https://") && !url.starts_with("http://") {
+        return Err("Only web links can be opened".into());
+    }
+    std::process::Command::new("open").arg(&url).spawn().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn dd_reveal(path: PathBuf) -> Result<(), String> {
     std::process::Command::new("open").arg("-R").arg(path).spawn().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Bumped by macOS on every copy, so copying the same link again counts too.
+#[cfg(target_os = "macos")]
+fn clipboard_version() -> isize {
+    objc2_app_kit::NSPasteboard::generalPasteboard().changeCount()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn clipboard_version() -> isize {
+    0
 }
 
 /// Forwards copied links to the UI, which routes them to the right tab.
@@ -159,12 +182,15 @@ fn watch_clipboard(app: AppHandle, engine: Engine) {
             }
         };
         let mut last = clipboard.get_text().unwrap_or_default();
+        let mut version = clipboard_version();
         loop {
             std::thread::sleep(Duration::from_millis(750));
+            let current = clipboard_version();
             let Ok(text) = clipboard.get_text() else { continue };
-            if text == last {
+            if text == last && current == version {
                 continue;
             }
+            version = current;
             let has_link = text.contains("magnet:?") || !links::extract_urls(&text).is_empty();
             if engine.settings().watch_clipboard && has_link {
                 let _ = app.emit("clipboard", &text);
@@ -177,12 +203,17 @@ fn watch_clipboard(app: AppHandle, engine: Engine) {
 pub fn init(app: &mut tauri::App, config_dir: &Path) -> tauri::Result<()> {
     let downloads = app.path().download_dir()?;
     let engine = Engine::new(config_dir.join("direct-queue.json"), downloads);
-    for provider in Provider::ALL {
-        let key = keychain(provider).ok().and_then(|e| e.get_password().ok());
-        engine.accounts().set_key(provider, key);
-    }
+    // A read can wait on the user's answer to a Keychain prompt: not on the main thread.
+    let keys = engine.clone();
+    std::thread::spawn(move || {
+        for provider in Provider::ALL {
+            let key = keychain(provider).ok().and_then(|e| e.get_password().ok());
+            keys.accounts().set_key(provider, key);
+        }
+    });
     tauri::async_runtime::spawn(engine.clone().run_loop());
     watch_clipboard(app.handle().clone(), engine.clone());
+    captcha::start_click_n_load(app.handle().clone());
     app.manage(engine);
     Ok(())
 }

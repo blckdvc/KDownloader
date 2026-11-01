@@ -122,7 +122,11 @@ Premiumize, Debrid-Link, Uploadedpremiumlink, TorBox, Mega-Debrid, Cocoleech and
 Fakirdebrid. API keys are stored in the macOS Keychain.
 
 Copied links are routed automatically: magnets and `.torrent` URLs prefill the Torrent
-tab, and everything else goes to the Link Grabber. The code lives in `src-tauri/src/direct/`
+tab, and other file links start at once, or wait in the Link Grabber if you turn that off. The code lives in `src-tauri/src/direct/`
 and `ui/direct.js`; the engine is independent of Tauri and tested with `cargo test direct::`.
+
+Link protectors open in a small window where you solve the captcha yourself. Pulsar also
+listens for Click'n'Load on `127.0.0.1:9666`: links from a known protector start at once,
+and links from any other page wait in the Link Grabber.
 
 Out of scope: captcha solving, dodging hoster limits, container decryption, protected streams.

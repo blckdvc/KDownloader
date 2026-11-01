@@ -361,6 +361,7 @@ fn list_torrents(state: State<'_, Shared>) -> Result<Vec<Value>, String> {
         for (id, handle) in it {
             let stats = handle.stats();
             let mut stats_json = serde_json::to_value(&stats).unwrap_or(Value::Null);
+            let swarm = state.session.tracker_swarm(&handle.info_hash());
             let name = handle.name().unwrap_or_else(|| format!("torrent {id}"));
             let hash = format!("{:?}", handle.info_hash());
             let folder = handle.output_folder().to_string_lossy().to_string();
@@ -380,6 +381,8 @@ fn list_torrents(state: State<'_, Shared>) -> Result<Vec<Value>, String> {
                 "category": m.category,
                 "tags": m.tags,
                 "stats": stats_json,
+                "tracker_seeds": swarm.map(|s| s.0),
+                "tracker_peers": swarm.map(|s| s.1),
             }));
         }
         v
@@ -1448,7 +1451,9 @@ pub fn run() {
             direct::dd_connect_account,
             direct::dd_disconnect_account,
             direct::dd_open_key_page,
-            direct::dd_reveal
+            direct::dd_reveal,
+            direct::dd_open_url,
+            direct::captcha::dd_open_captcha
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

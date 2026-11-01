@@ -92,6 +92,7 @@ button.danger { background: var(--err); border-color: var(--err); color: #fff; f
 .ttable tbody td.num { text-align: right; }
 .ttable tbody tr:nth-child(even) { background: var(--row-alt); }
 .ttable tbody tr:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.ttable tbody { user-select: none; -webkit-user-select: none; }
 .ttable tbody tr.selected { background: var(--sel) !important; }
 .col-name { min-width: 240px; }
 td.col-name { max-width: 420px; overflow: hidden; text-overflow: ellipsis; }
@@ -202,59 +203,62 @@ code { background: var(--track); padding: 1px 5px; border-radius: 4px; font-size
 .app-badge { background: var(--accent); color: #fff; border-radius: 9px; padding: 0 6px; font-size: 11px; }
 .view { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 
-/* Direct Download */
-#view-direct { --line: var(--border); --bad: var(--err); }
-#view-direct .dd-head { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
-#view-direct nav { display: flex; gap: 4px; }
-#view-direct .spacer { flex: 1; }
-#view-direct .muted { color: var(--muted); }
-#view-direct button { font: inherit; color: inherit; padding: 5px 11px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); cursor: pointer; }
-#view-direct button:hover:not(:disabled) { border-color: var(--accent); }
-#view-direct button:disabled { opacity: .5; cursor: default; }
-#view-direct button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-#view-direct .tab { border-color: transparent; background: none; }
-#view-direct .tab.active { background: var(--bg); border-color: var(--line); font-weight: 600; }
-#view-direct .badge { background: var(--accent); color: #fff; border-radius: 9px; padding: 0 6px; font-size: 11px; }
-#view-direct main { flex: 1; overflow: auto; padding: 14px; }
-#view-direct .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-#view-direct .empty { text-align: center; color: var(--muted); margin-top: 80px; }
-#view-direct textarea, #view-direct input[type=text], #view-direct input[type=number], #view-direct input[type=password] { font: inherit; color: inherit; width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
-#view-direct textarea { resize: vertical; margin-bottom: 10px; }
-#view-direct .package { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 10px; overflow: hidden; }
-#view-direct .package-head { display: flex; gap: 10px; padding: 8px 12px; font-weight: 600; border-bottom: 1px solid var(--line); }
-#view-direct .package-head .muted { margin-left: auto; font-weight: 400; }
-#view-direct .item { padding: 8px 12px; }
-#view-direct .item + .item { border-top: 1px solid var(--line); }
-#view-direct .item-top { display: flex; align-items: center; gap: 12px; }
-#view-direct .item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#view-direct .item-actions { display: flex; gap: 4px; }
-#view-direct .item-actions button { padding: 2px 8px; font-size: 12px; }
-#view-direct .bar { height: 4px; border-radius: 2px; background: var(--line); margin-top: 6px; overflow: hidden; }
-#view-direct .bar > div { height: 100%; background: var(--accent); }
-#view-direct .done .bar > div { background: var(--ok); }
-#view-direct .failed .bar > div { background: var(--bad); }
-#view-direct .paused .bar > div { background: var(--warn); }
-#view-direct .item-meta { display: flex; gap: 12px; margin-top: 4px; font-size: 12px; color: var(--muted); }
-#view-direct .error { color: var(--bad); }
-#view-direct table { width: 100%; table-layout: fixed; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); }
-#view-direct th, #view-direct td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#view-direct th { color: var(--muted); font-weight: 500; }
-#view-direct .c-check { width: 34px; }
-#view-direct .c-pack { width: 26%; }
-#view-direct .c-size { width: 90px; }
-#view-direct .c-state { width: 130px; }
-#view-direct dialog { color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; width: 440px; padding: 18px; }
-#view-direct dialog::backdrop { background: rgba(0,0,0,.35); }
-#view-direct dialog h2 { margin: 0 0 12px; font-size: 16px; }
-#view-direct dialog h3 { margin: 16px 0 2px; font-size: 13px; }
-#view-direct .hint { margin: 0 0 8px; font-size: 12px; }
-#view-direct .account { padding: 8px 0; border-top: 1px solid var(--line); }
-#view-direct .account-head { display: flex; justify-content: space-between; gap: 10px; }
-#view-direct #dd-toast { z-index: 10; }
-#view-direct dialog { max-height: 86vh; overflow: auto; }
-#view-direct dialog label { display: block; margin-bottom: 10px; }
-#view-direct dialog label.check { display: flex; gap: 8px; align-items: center; }
-#view-direct .row { display: flex; gap: 8px; margin-top: 3px; }
-#view-direct .row button { white-space: nowrap; }
-#view-direct .row.end { justify-content: flex-end; margin-top: 14px; }
-#view-direct #dd-toast { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); max-width: 80%; background: var(--bad); color: #fff; padding: 7px 14px; border-radius: 6px; }
+/* Direct Download: everything else comes from the Torrent tab's styles */
+#dd-tb-remove:hover:not(:disabled) { background: color-mix(in srgb, var(--err) 15%, var(--panel-2)); border-color: var(--err); color: var(--err); }
+.dd-grabber { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.dd-grabber .opts { align-items: center; gap: 8px; padding: 7px 14px; }
+.dd-status, .dd-clip { overflow: hidden; text-overflow: ellipsis; }
+.dd-status .st { max-width: 100%; }
+.dd-c-check { width: 34px; } .dd-c-size { width: 80px; } .dd-c-package { width: 26%; } .dd-c-state { width: 330px; }
+.dd-grid { margin-top: 12px; }
+.dd-open { display: block; padding: 2px 0 0; }
+.dd-hint { margin: 0 0 8px; font-size: 12px; }
+.dd-account { padding: 8px 0; border-top: 1px solid var(--border); }
+.dd-account-head { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 5px; }
+.acct-bad { color: var(--err); }
+.group input[type="password"] { padding: 6px 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); flex: 1; min-width: 0; }
+
+.bw-mini { margin-left: auto; display: flex; align-items: center; gap: 8px; padding: 2px 8px; font-size: 11.5px;
+  background: none; border-color: transparent; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bw-mini-line { stroke: var(--accent); }
+/* Live speeds keep a fixed width, so changing numbers never push anything around. */
+#totals, #dd-totals, #bw-mini-text { display: inline-block; text-align: right; white-space: pre; font-variant-numeric: tabular-nums; }
+#totals { width: 200px; }
+#dd-totals { width: 100px; }
+#bw-mini-text { width: 200px; }
+.bw-mini { flex: 0 0 auto; }
+/* Bandwidth: colors validated against both panels by the dataviz checker */
+:root { --bw-torrent-down: #2a78d6; --bw-torrent-up: #eb6834; --bw-direct: #1baf7a; --bw-total: var(--muted); }
+@media (prefers-color-scheme: dark) {
+  :root { --bw-torrent-down: #3987e5; --bw-torrent-up: #d95926; --bw-direct: #199e70; }
+}
+#view-bandwidth { padding: 12px 14px; gap: 10px; background: var(--panel); }
+.bw-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; }
+.bw-head h2 { margin: 0; font-size: 14px; }
+.bw-ranges { display: flex; gap: 4px; }
+.bw-ranges button { padding: 3px 9px; font-size: 12px; }
+.bw-ranges button.active { background: var(--sel); border-color: var(--accent); }
+.bw-plot { position: relative; flex: 1 1 auto; min-height: 200px; }
+#bw-chart { position: absolute; inset: 0; width: 100%; height: 100%; }
+.bw-waiting { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; margin: 0; }
+.bw-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.bw-key line { stroke-width: 2; stroke-linecap: round; }
+.bw-torrent-down { stroke: var(--bw-torrent-down); }
+.bw-torrent-up { stroke: var(--bw-torrent-up); }
+.bw-direct { stroke: var(--bw-direct); }
+.bw-total { stroke: var(--bw-total); stroke-dasharray: 5 4; }
+.bw-grid { stroke: var(--border); stroke-width: 1; }
+.bw-axis { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.bw-end { fill: var(--text); font-size: 11px; }
+.bw-cross { stroke: var(--muted); stroke-width: 1; }
+.bw-dot { fill: var(--panel); stroke-width: 2; stroke-dasharray: none; }
+.bw-tip { position: absolute; min-width: 170px; padding: 7px 10px; font-size: 12px; pointer-events: none;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 7px; box-shadow: 0 2px 8px rgba(0,0,0,.18); }
+.bw-tip-time { color: var(--muted); margin-bottom: 4px; }
+.bw-tip-row { display: flex; justify-content: space-between; gap: 16px; font-variant-numeric: tabular-nums; }
+.bw-tip-row strong { font-weight: 600; }
+.bw-table { flex: 0 0 auto; width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.bw-table th { color: var(--muted); font-weight: 500; text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+.bw-table td { padding: 4px 8px; border-bottom: 1px solid var(--border); }
+.bw-table .num { text-align: right; }
+.bw-key { margin-right: 8px; vertical-align: 1px; }
