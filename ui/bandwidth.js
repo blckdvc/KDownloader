@@ -13,7 +13,7 @@ const MAX_SECONDS = 30 * 60;
 const MARGIN = { top: 14, right: 92, bottom: 26, left: 76 };
 const LABEL_GAP = 15;
 const MINI_SECONDS = 60;
-const MINI_W = 96, MINI_H = 22;
+const MINI_W = 124, MINI_H = 28;
 
 let samples = [];
 let range = 60;

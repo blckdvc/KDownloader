@@ -125,11 +125,27 @@ function openCaptchas(found) {
   }
 }
 
+function addOptions() {
+  return {
+    package: $("o-package").value.trim() || null,
+    save_to: $("o-savepath").value.trim() || null,
+    connections: Number($("o-connections").value) || null,
+    paused: $("o-paused").checked,
+    skip_extraction: $("o-noextract").checked,
+  };
+}
+
+$("opts-toggle").addEventListener("click", () => {
+  const panel = $("opts");
+  panel.hidden = !panel.hidden;
+  $("opts-toggle").textContent = panel.hidden ? "Options ▾" : "Options ▴";
+});
+
 // Starts what can start, and returns the links left in the grabber.
 async function start(found) {
   const ready = found.filter((p) => p.online && !p.duplicate);
   const blocked = found.filter((p) => !ready.includes(p));
-  if (ready.length) await call("dd_add", { probes: ready });
+  if (ready.length) await call("dd_add", { probes: ready, options: addOptions() });
   if (blocked.length) {
     grab(blocked);
     const added = ready.length ? `Added ${ready.length}. ` : "";
@@ -505,7 +521,7 @@ $("add-selected").addEventListener("click", async () => {
   const chosen = grabbed.filter((p) => p.selected);
   grabbed = grabbed.filter((p) => !p.selected);
   const unchecked = chosen.filter((p) => p.unchecked);
-  await call("dd_add", { probes: chosen.filter((p) => !p.unchecked) });
+  await call("dd_add", { probes: chosen.filter((p) => !p.unchecked), options: addOptions() });
   // Accepted links are only now sent to a debrid service.
   if (unchecked.length) {
     const found = await call("dd_grab", { text: unchecked.map((p) => p.url).join(" "), filesOnly: false });

@@ -131,6 +131,10 @@ pub struct Item {
     pub extract_total: Option<u64>,
     #[serde(default)]
     pub extract_speed: u64,
+    #[serde(default)]
+    pub connection_limit: Option<usize>,
+    #[serde(default)]
+    pub skip_extraction: bool,
 }
 
 impl Item {
@@ -140,6 +144,17 @@ impl Item {
     fn part_path(&self) -> PathBuf {
         self.dir.join(format!(".{}.qpart", self.id))
     }
+}
+
+/// Choices the user made for a batch of links.
+#[derive(Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct AddOptions {
+    pub package: Option<String>,
+    pub save_to: Option<PathBuf>,
+    pub connections: Option<usize>,
+    pub paused: bool,
+    pub skip_extraction: bool,
 }
 
 /// What the link grabber learned about a URL.
@@ -437,23 +452,28 @@ impl Engine {
         links::extract_file_links(&String::from_utf8_lossy(&body), &base)
     }
 
+    #[cfg(test)]
     pub fn add(&self, probes: Vec<Probe>) {
+        self.add_with(probes, AddOptions::default());
+    }
+
+    pub fn add_with(&self, probes: Vec<Probe>, options: AddOptions) {
         {
             let mut st = self.0.state.lock().unwrap();
             for p in probes {
                 st.next_id += 1;
-                let package = links::sanitize(&p.package);
+                let package = links::sanitize(options.package.as_deref().unwrap_or(&p.package));
                 let link_fresh_until = p.direct.as_ref().map(|_| Instant::now() + LINK_FRESH);
                 let item = Item {
                     id: st.next_id,
-                    dir: st.settings.download_dir.join(&package),
+                    dir: options.save_to.as_ref().unwrap_or(&st.settings.download_dir).join(&package),
                     url: p.url,
                     name: links::sanitize(&p.name),
                     package,
                     size: p.size,
                     resumable: p.resumable,
                     validator: p.validator,
-                    status: Status::Queued,
+                    status: if options.paused { Status::Paused } else { Status::Queued },
                     error: None,
                     output: None,
                     segments: vec![],
@@ -468,6 +488,8 @@ impl Engine {
                     extracted: 0,
                     extract_total: None,
                     extract_speed: 0,
+                    connection_limit: options.connections.filter(|c| *c > 0),
+                    skip_extraction: options.skip_extraction,
                 };
                 st.items.push(item);
             }
@@ -725,7 +747,11 @@ impl Engine {
                 return Err(DlError::Fatal("The server sent a web page, not a file".into()));
             }
             fresh |= info.size != item.size || info.resumable != item.resumable;
-            let chunks = item.max_chunks.unwrap_or(usize::MAX).min(self.settings().chunks);
+            let chunks = item
+                .max_chunks
+                .unwrap_or(usize::MAX)
+                .min(item.connection_limit.unwrap_or(usize::MAX))
+                .min(self.settings().chunks);
             item = self
                 .update(id, |it| {
                     if fresh {
@@ -922,7 +948,7 @@ impl Engine {
             it.speed = 0;
             it.status = Status::Done;
         });
-        if self.settings().auto_extract {
+        if self.settings().auto_extract && !item.skip_extraction {
             self.extract(id).await;
         }
     }

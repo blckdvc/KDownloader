@@ -9,7 +9,7 @@
   <body>
     <div class="titlebar" data-tauri-drag-region>Pulsar</div>
     <nav class="app-tabs">
-      <div class="brand">
+      <button type="button" id="about-open" class="brand" title="About Pulsar">
         <svg class="logo" viewBox="2.5 2.5 19 19" aria-hidden="true">
           <defs>
             <radialGradient id="lg-orb" cx="40%" cy="36%" r="72%">
@@ -25,12 +25,12 @@
           <ellipse cx="12" cy="12" rx="12" ry="1.8" fill="url(#lg-beam)" transform="rotate(-38 12 12)"/>
           <circle cx="12" cy="12" r="5.5" fill="url(#lg-orb)"/>
         </svg>
-              </div>
+              </button>
       <button type="button" id="app-tab-torrent" class="app-tab active">Torrent</button>
       <button type="button" id="app-tab-direct" class="app-tab">Direct Download <span id="app-grab-count" class="app-badge" hidden></span></button>
       <button type="button" id="app-tab-bandwidth" class="app-tab">Bandwidth</button>
       <button type="button" id="bw-mini" class="bw-mini" title="Open Bandwidth">
-        <svg id="bw-mini-chart" width="96" height="22" aria-hidden="true"></svg>
+        <svg id="bw-mini-chart" width="124" height="28" aria-hidden="true"></svg>
         <span id="bw-mini-text">↓ 0 B/s&nbsp;&nbsp;↑ 0 B/s</span>
       </button>
     </nav>
@@ -139,9 +139,21 @@
         <button id="dd-tb-resume" class="ghost icon" title="Resume selected" disabled>▶</button>
         <button id="dd-tb-pause" class="ghost icon" title="Pause selected" disabled>⏸</button>
         <button id="dd-tb-remove" class="ghost icon" title="Remove selected" disabled>✕</button>
+        <button type="button" id="dd-opts-toggle" class="ghost" title="Add options">Options ▾</button>
         <button type="button" id="dd-settings-btn" class="ghost icon" title="Settings">⚙</button>
       </div>
     </header>
+
+    <section id="dd-opts" class="opts" hidden>
+      <label>Package <input id="dd-o-package" type="text" placeholder="(from the file name)" /></label>
+      <label>Save to
+        <span class="withbtn"><input id="dd-o-savepath" type="text" placeholder="(default folder)" />
+        <button type="button" class="ghost browse" data-target="dd-o-savepath">Browse…</button></span>
+      </label>
+      <label>Connections <input id="dd-o-connections" type="number" min="0" max="16" value="0" title="0 uses the Settings value" /></label>
+      <label class="chk"><input id="dd-o-paused" type="checkbox" /> Start paused</label>
+      <label class="chk"><input id="dd-o-noextract" type="checkbox" /> Don't extract</label>
+    </section>
 
     <div id="dd-error" class="error" hidden></div>
 
@@ -232,6 +244,21 @@
         <thead><tr><th>Series</th><th class="num">Now</th><th class="num">Peak</th><th class="num">Average</th></tr></thead>
         <tbody id="bw-summary"></tbody>
       </table>
+    </div>
+
+    <div id="about-modal" class="overlay" hidden>
+      <div class="sheet small about">
+        <div class="sheet-body">
+          <div id="about-logo"></div>
+          <h2 id="about-title">Pulsar</h2>
+          <p>BitTorrent client and download manager: torrents, premium accounts, captcha window, archive extraction and bandwidth history (librqbit engine).</p>
+          <p>by blckdvc</p>
+          <p>Free &amp; open-source — if you feel like it, buy me a few tokens:</p>
+          <button type="button" id="about-donate" class="about-donate" title="paypal.me/lbenh"><img src="buy-me-tokens.png" alt="Buy me tokens" /></button>
+          <p class="muted about-credits">Includes librqbit, Tauri and UnRAR (© Alexander Roshal), under their own licenses.</p>
+        </div>
+        <div class="sheet-foot"><button id="about-close" class="primary">OK</button></div>
+      </div>
     </div>
 
     <!-- Direct Download settings -->
