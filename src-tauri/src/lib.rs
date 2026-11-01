@@ -515,7 +515,7 @@ async fn remove_torrent(state: State<'_, Shared>, id: u64, delete_files: bool) -
     // Capture the hash first so we can drop app-side metadata too.
     let handle = state.session.get((id as usize).into());
     let hash = handle.as_ref().map(hash_hex);
-    // Listed before the torrent goes: Pulsar deletes through the Trash, so the
+    // Listed before the torrent goes: KDownloader deletes through the Trash, so the
     // session only forgets it.
     let files = handle.as_ref().filter(|_| delete_files).map(|h| torrent_paths(h)).unwrap_or_default();
     state.session.delete((id as usize).into(), false).await.map_err(e2s)?;
@@ -780,14 +780,14 @@ pub fn run() {
             let mut settings: Settings = load_json(&cfg_dir.join("settings.json"));
             if settings.download_dir.is_empty() {
                 let base = app.path().download_dir().unwrap_or_else(|_| std::env::temp_dir());
-                settings.download_dir = base.join("Pulsar").to_string_lossy().to_string();
+                settings.download_dir = base.join("KDownloader").to_string_lossy().to_string();
             }
             let mut notices = Vec::new();
             let mut dl = PathBuf::from(&settings.download_dir);
             if let Err(e) = std::fs::create_dir_all(&dl) {
                 // An unplugged disk mustn't stop the app from opening.
                 let base = app.path().download_dir().unwrap_or_else(|_| std::env::temp_dir());
-                let fallback = base.join("Pulsar");
+                let fallback = base.join("KDownloader");
                 notices.push(format!(
                     "The download folder {} isn't available ({e}). Using {} for now.",
                     dl.display(),
@@ -861,13 +861,13 @@ pub fn run() {
                 Ok(session) => session,
                 // Usually the port is taken. Downloads still work, just without incoming peers.
                 Err(e) => {
-                    notices.push(format!("Pulsar can't accept incoming peers: {e:#}. Check the port in Settings."));
+                    notices.push(format!("KDownloader can't accept incoming peers: {e:#}. Check the port in Settings."));
                     open_session(session_opts(false))?
                 }
             };
 
             let http = reqwest::Client::builder()
-                .user_agent("Pulsar/0.2")
+                .user_agent("KDownloader/0.2")
                 .build()
                 .unwrap_or_default();
 
@@ -904,7 +904,7 @@ pub fn run() {
 
             direct::init(app, &cfg_dir)?;
             for notice in notices {
-                app.dialog().message(notice).title("Pulsar").show(|_| {});
+                app.dialog().message(notice).title("KDownloader").show(|_| {});
             }
 
             Ok(())

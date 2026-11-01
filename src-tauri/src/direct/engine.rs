@@ -279,7 +279,7 @@ impl Engine {
             }
         }
         let http = Client::builder()
-            .user_agent(concat!("Pulsar/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("KDownloader/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(20))
             .read_timeout(Duration::from_secs(60))
             .build()
