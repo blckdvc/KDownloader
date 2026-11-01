@@ -115,47 +115,6 @@ document.addEventListener("click", (e) => {
   if (b) { const i = $(b.dataset.target); if (i) browseInto(i); }
 });
 
-// ---- rendering -----------------------------------------------------------
-// Touching only what changed keeps selections, tooltips and clicks intact across
-// the once-a-second refresh.
-const lastHtml = new WeakMap();
-function setHtml(el, html) {
-  if (lastHtml.get(el) === html) return;
-  lastHtml.set(el, html);
-  el.innerHTML = html;
-}
-function setText(el, text) {
-  if (el.textContent !== text) el.textContent = text;
-}
-// Replaces only the entries that changed, so text can be selected and copied.
-function patchList(container, html) {
-  const holder = document.createElement("div");
-  holder.innerHTML = html;
-  const next = holder.firstElementChild, current = container.firstElementChild;
-  if (current?.tagName !== "DL" || current.children.length !== next.children.length) {
-    lastHtml.delete(container);
-    container.replaceChildren(next);
-    return;
-  }
-  [...next.children].forEach((entry, i) => {
-    if (current.children[i].outerHTML !== entry.outerHTML) current.children[i].replaceWith(entry);
-  });
-}
-// rows: [{ id, cls, html }] in display order.
-function patchRows(tbody, rows) {
-  const existing = new Map([...tbody.children].map((tr) => [tr.dataset.id, tr]));
-  rows.forEach((row, i) => {
-    const key = String(row.id);
-    let tr = existing.get(key);
-    if (tr) existing.delete(key);
-    else { tr = document.createElement("tr"); tr.dataset.id = key; }
-    if (tr.className !== row.cls) tr.className = row.cls;
-    setHtml(tr, row.html);
-    if (tbody.children[i] !== tr) tbody.insertBefore(tr, tbody.children[i] || null);
-  });
-  existing.forEach((tr) => tr.remove());
-}
-
 // ---- sidebar -------------------------------------------------------------
 const STATUSES = [
   ["all", "All"], ["downloading", "Downloading"], ["seeding", "Seeding"],
@@ -180,7 +139,7 @@ function matchStatus(t, f) {
 function renderSidebar() {
   setHtml($("status-filters"), STATUSES.map(([k, label]) => {
     const n = torrents.filter((t) => matchStatus(t, k)).length;
-    return `<li data-status="${k}" class="${statusFilter === k ? "active" : ""}"><span>${label}</span><span class="cnt">${n}</span></li>`;
+    return `<li data-status="${k}" tabindex="0" class="${statusFilter === k ? "active" : ""}"><span>${label}</span><span class="cnt">${n}</span></li>`;
   }).join(""));
 
   const cats = {};
@@ -280,48 +239,14 @@ document.querySelectorAll("thead th[data-sort]").forEach((th) => {
 });
 
 // ---- fixed + resizable columns -------------------------------------------
-const COLW_KEY = "pulsar-colw";
-const COLW_DEFAULT = { size: 80, progress: 150, status: 115, seeds: 84, peers: 84, down: 92, up: 92, eta: 80, ratio: 72 };
-let colw = { ...COLW_DEFAULT };
-try { colw = { ...COLW_DEFAULT, ...(JSON.parse(localStorage.getItem(COLW_KEY) || "{}")) }; } catch (e) {}
-const colEl = (k) => document.querySelector(`col[data-col="${k}"]`);
-// Fixed columns would otherwise squeeze the flexible Name column down to nothing.
-const MIN_NAME_WIDTH = 240;
-function fitTable() {
-  const fixed = Object.keys(COLW_DEFAULT).reduce((sum, k) => sum + (colw[k] || COLW_DEFAULT[k]), 0);
-  document.querySelector("#view-torrent .ttable").style.minWidth = `${fixed + MIN_NAME_WIDTH}px`;
-}
-function applyColWidths() { for (const k in COLW_DEFAULT) { const c = colEl(k); if (c) c.style.width = (colw[k] || COLW_DEFAULT[k]) + "px"; } fitTable(); }
-applyColWidths();
-document.querySelectorAll("thead th[data-sort]").forEach((th) => {
-  const key = th.dataset.sort;
-  if (!(key in COLW_DEFAULT)) return;          // Name column flexes to fill
-  const h = document.createElement("div");
-  h.className = "col-resize";
-  h.title = "Drag to resize";
-  th.appendChild(h);
-  h.addEventListener("click", (e) => e.stopPropagation());   // don't trigger sort
-  h.addEventListener("pointerdown", (e) => {
-    e.preventDefault(); e.stopPropagation();
-    const startX = e.clientX, startW = colEl(key).getBoundingClientRect().width;
-    h.classList.add("drag");
-    try { h.setPointerCapture(e.pointerId); } catch (e) {}
-    const move = (ev) => { colw[key] = Math.max(44, Math.round(startW + ev.clientX - startX)); colEl(key).style.width = colw[key] + "px"; fitTable(); };
-    const up = () => {
-      h.classList.remove("drag");
-      document.removeEventListener("pointermove", move);
-      document.removeEventListener("pointerup", up);
-      try { localStorage.setItem(COLW_KEY, JSON.stringify(colw)); } catch (e) {}
-    };
-    document.addEventListener("pointermove", move);
-    document.addEventListener("pointerup", up);
-  });
-  // double-click a handle resets that column to its default width
-  h.addEventListener("dblclick", (e) => {
-    e.stopPropagation();
-    colw[key] = COLW_DEFAULT[key]; colEl(key).style.width = colw[key] + "px"; fitTable();
-    try { localStorage.setItem(COLW_KEY, JSON.stringify(colw)); } catch (e) {}
-  });
+resizableColumns({
+  storageKey: "pulsar-colw",
+  defaults: { size: 80, progress: 150, status: 115, seeds: 84, peers: 84, down: 92, up: 92, eta: 80, ratio: 72 },
+  table: document.querySelector("#view-torrent .ttable"),
+  headers: document.querySelectorAll("#view-torrent thead th[data-sort]"),
+  headerKey: (th) => th.dataset.sort,
+  column: (key) => document.querySelector(`col[data-col="${key}"]`),
+  minName: 240,
 });
 
 // ---- toolbar actions -----------------------------------------------------
@@ -339,6 +264,7 @@ $("tb-pause").addEventListener("click", () => forSelected("pause_torrent", torre
 
 let rmTarget = null;
 function openRemoveModal(ids = [...selectedIds]) {
+  setTimeout(() => $("rm-cancel").focus());
   const picked = torrents.filter((x) => ids.includes(x.id)); if (!picked.length) return;
   rmTarget = picked.map((t) => t.id);
   $("rm-name").textContent = picked.length === 1 ? picked[0].name || `torrent ${picked[0].id}` : `${picked.length} torrents selected`;
@@ -363,15 +289,6 @@ $("rm-keep").addEventListener("click", () => doRemove(false));
 $("rm-del").addEventListener("click", () => doRemove(true));
 
 // ---- right-click context menu -------------------------------------------
-const ctx = $("ctxmenu");
-let ctxShownAt = 0;
-function hideCtx(force) {
-  // ignore the trailing click of the very gesture that opened the menu
-  if (!force && performance.now() - ctxShownAt < 250) return;
-  if (ctx && !ctx.hidden) { ctx.hidden = true; ctx.innerHTML = ""; }
-}
-document.addEventListener("click", () => hideCtx());
-window.addEventListener("blur", () => hideCtx(true));
 $("tbody").addEventListener("scroll", () => hideCtx(true), true);
 
 $("tbody").addEventListener("contextmenu", (e) => {
@@ -401,19 +318,7 @@ $("tbody").addEventListener("contextmenu", (e) => {
     { label: "✕ Remove (keep files)", act: () => removeNow([id], false) },
     { label: "🗑 Remove + move files to Trash", danger: true, act: () => openRemoveModal([id]) },
   ];
-  ctx.innerHTML = items
-    .map((it, i) => it.sep ? '<div class="ctx-sep"></div>' : `<div class="ctx-item${it.danger ? " danger" : ""}" data-i="${i}">${it.label}</div>`)
-    .join("");
-  ctx.hidden = false;
-  ctxShownAt = performance.now();
-  let x = e.clientX, y = e.clientY;
-  const mw = ctx.offsetWidth, mh = ctx.offsetHeight;
-  if (x + mw > window.innerWidth) x = window.innerWidth - mw - 6;
-  if (y + mh > window.innerHeight) y = window.innerHeight - mh - 6;
-  ctx.style.left = x + "px"; ctx.style.top = y + "px";
-  ctx.querySelectorAll(".ctx-item").forEach((el) => el.addEventListener("click", (ev) => {
-    ev.stopPropagation(); const it = items[Number(el.dataset.i)]; hideCtx(true); it.act && it.act();
-  }));
+  showContextMenu(e, items);
 });
 
 // ---- keyboard ------------------------------------------------------------
@@ -428,7 +333,7 @@ document.addEventListener("keydown", (e) => {
   }
   const tag = (e.target.tagName || "").toLowerCase();
   if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;
-  if (!$("modal").hidden) return; // settings open
+  if (!$("modal").hidden) { if (e.key === "Escape") $("modal").hidden = true; return; } // settings open
   if ($("view-torrent").hidden) return; // keys belong to the visible tab
 
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
@@ -465,20 +370,11 @@ function selectRows(ids) {
   paintSelection();
   if (selectedId == null) $("detail").hidden = true; else loadTab();
 }
-// Finder-style: ⌘-click toggles a row, ⇧-click selects a range from the anchor.
 function pickRow(id, e) {
-  if (e.metaKey || e.ctrlKey) {
-    const next = new Set(selectedIds);
-    if (!next.delete(id)) next.add(id);
-    anchorId = id;
-    selectRows([...next]);
-  } else if (e.shiftKey && anchorId != null) {
-    const order = rowOrder(), a = order.indexOf(anchorId), b = order.indexOf(id);
-    if (a === -1 || b === -1) selectTorrent(id);
-    else selectRows(order.slice(Math.min(a, b), Math.max(a, b) + 1));
-  } else {
-    selectTorrent(id);
-  }
+  const picked = nextSelection(selectedIds, rowOrder(), anchorId, id, e);
+  if (!picked) { selectTorrent(id); return; }
+  if (e.metaKey || e.ctrlKey) anchorId = id;
+  selectRows(picked);
 }
 $("detail-close").addEventListener("click", () => { $("detail").hidden = true; });
 document.querySelectorAll(".dtab").forEach((b) => b.addEventListener("click", () => {
@@ -663,6 +559,11 @@ async function refresh() {
   }
 }
 window.addEventListener("pulsar-tab", refresh);
+// Sidebar entries work from the keyboard, and icon buttons say what they do.
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target.matches?.("li[tabindex]")) e.target.click();
+});
+document.querySelectorAll("button[title]").forEach((b) => b.setAttribute("aria-label", b.title));
 async function init() {
   try { settingsCache = await invoke("get_settings"); updateLimitsBadge(); updateDirLabel(); } catch (e) { showError(e); }
   await refresh();

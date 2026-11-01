@@ -125,6 +125,9 @@ Copied links are routed automatically: magnets and `.torrent` URLs prefill the T
 tab, and other file links start at once, or wait in the Link Grabber if you turn that off. The code lives in `src-tauri/src/direct/`
 and `ui/direct.js`; the engine is independent of Tauri and tested with `cargo test direct::`.
 
+Multi-volume RAR sets extract once their last volume arrives, and a failed extraction
+can be retried from the right-click menu. Deleted files go to the Trash.
+
 Link protectors open in a small window where you solve the captcha yourself. Pulsar also
 listens for Click'n'Load on `127.0.0.1:9666`: links from a known protector start at once,
 and links from any other page wait in the Link Grabber.

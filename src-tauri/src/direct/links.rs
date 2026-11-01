@@ -123,6 +123,26 @@ pub fn is_extractable(file: &str) -> bool {
             .any(|ext| lower.ends_with(ext))
 }
 
+static RAR_PART_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)^(.*)\.part(\d+)\.rar$").unwrap());
+static RAR_OLD_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)^(.*)\.(rar|r\d\d)$").unwrap());
+
+/// The set a RAR file belongs to, and its position in it: volume 1 opens the rest.
+/// `film.part02.rar` is `("film", 2)`; in the older naming, `film.rar` comes before
+/// `film.r00`.
+pub fn rar_volume(file: &str) -> Option<(String, u32)> {
+    if let Some(m) = RAR_PART_RE.captures(file) {
+        return Some((m[1].to_lowercase(), m[2].parse().ok()?));
+    }
+    let m = RAR_OLD_RE.captures(file)?;
+    let number = match m[2].to_ascii_lowercase().as_str() {
+        "rar" => 1,
+        other => other[1..].parse::<u32>().ok()? + 2,
+    };
+    Some((m[1].to_lowercase(), number))
+}
+
 /// Folder name an archive unpacks into.
 pub fn archive_stem(file: &str) -> String {
     let stem = STEM_RE.replace(file, "");
@@ -132,6 +152,15 @@ pub fn archive_stem(file: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rar_volumes_are_ordered_in_both_namings() {
+        assert_eq!(rar_volume("Film.part01.rar"), Some(("film".into(), 1)));
+        assert_eq!(rar_volume("film.part28.rar"), Some(("film".into(), 28)));
+        assert_eq!(rar_volume("film.rar"), Some(("film".into(), 1)));
+        assert_eq!(rar_volume("film.r00"), Some(("film".into(), 2)));
+        assert_eq!(rar_volume("film.zip"), None);
+    }
 
     #[test]
     fn spots_hoster_ads() {
