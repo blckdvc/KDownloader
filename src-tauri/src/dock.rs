@@ -74,18 +74,27 @@ pub fn update(idle: bool, down: &str, up: &str) {
     #[allow(deprecated)]
     image.lockFocus();
     unsafe {
-        // The icon's tile, redrawn with the mark raised so the speeds leave the sphere clear.
-        let tile_rect = NSRect::new(NSPoint::new(13.0, 13.0), NSSize::new(102.0, 102.0));
-        NSColor::colorWithCalibratedRed_green_blue_alpha(0.05, 0.075, 0.15, 1.0).setFill();
-        NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(tile_rect, 23.0, 23.0).fill();
-        let data = NSData::with_bytes(include_bytes!("../icons/dock-mark.png"));
-        if let Some(mark) = NSImage::initWithData(NSImage::alloc(), &data) {
-            mark.drawInRect_fromRect_operation_fraction(
+        // The icon in two layers, with the mark raised so the speeds leave the sphere clear.
+        let no_crop = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0));
+        let layers: [(&[u8], NSRect); 2] = [
+            (
+                include_bytes!("../icons/dock-tile.png"),
+                NSRect::new(NSPoint::new(0.0, 0.0), size),
+            ),
+            (
+                include_bytes!("../icons/dock-mark.png"),
                 NSRect::new(NSPoint::new(26.0, 46.0), NSSize::new(76.0, 76.0)),
-                NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0)),
-                NSCompositingOperation::SourceOver,
-                1.0,
-            );
+            ),
+        ];
+        for (png, rect) in layers {
+            if let Some(layer) = NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(png)) {
+                layer.drawInRect_fromRect_operation_fraction(
+                    rect,
+                    no_crop,
+                    NSCompositingOperation::SourceOver,
+                    1.0,
+                );
+            }
         }
 
         // Shared font; white numbers with qBittorrent-style colored arrows.
