@@ -544,6 +544,7 @@ async function saveSettings() {
   catch (e) { showError(e); }
 }
 $("settings-btn").addEventListener("click", openSettings);
+$("limits-badge").addEventListener("click", () => { openSettings(); $("s-gdown").select(); });
 $("modal-close").addEventListener("click", () => ($("modal").hidden = true));
 $("modal-cancel").addEventListener("click", () => ($("modal").hidden = true));
 $("modal-save").addEventListener("click", saveSettings);
