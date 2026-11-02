@@ -1,6 +1,8 @@
 mod direct;
 #[cfg(target_os = "macos")]
 mod dock;
+#[cfg(target_os = "macos")]
+mod handler;
 mod rss;
 mod upnp;
 mod watch;
@@ -119,7 +121,7 @@ struct TMeta {
 // ---------------------------------------------------------------------------
 
 #[derive(Clone)]
-struct Shared {
+pub struct Shared {
     session: Arc<Session>,
     cfg_dir: PathBuf,
     settings: Arc<Mutex<Settings>>,
@@ -134,7 +136,7 @@ struct Shared {
 /// Options shared by every "add" path.
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct AddOpts {
+pub struct AddOpts {
     #[serde(default)]
     category: String,
     #[serde(default)]
@@ -903,6 +905,8 @@ pub fn run() {
             let _ = &shared;
 
             direct::init(app, &cfg_dir)?;
+            #[cfg(target_os = "macos")]
+            handler::flush(app.handle());
             for notice in notices {
                 app.dialog().message(notice).title("KDownloader").show(|_| {});
             }
@@ -932,6 +936,10 @@ pub fn run() {
             direct::dd_grab,
             direct::dd_add,
             direct::dd_list_unchecked,
+            #[cfg(target_os = "macos")]
+            handler::is_default_handler,
+            #[cfg(target_os = "macos")]
+            handler::make_default_handler,
             direct::open_donation_page,
             direct::dd_retry_extraction,
             direct::dd_move,
@@ -955,12 +963,15 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
+        .run(|app, event| match event {
+            tauri::RunEvent::Exit => {
                 direct::flush(app);
                 if let Some(shared) = app.try_state::<Shared>() {
                     shared.save_meta();
                 }
             }
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Opened { urls } => handler::open(app, urls),
+            _ => {}
         });
 }

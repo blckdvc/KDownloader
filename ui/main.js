@@ -488,8 +488,16 @@ function feedRow(feed = { url: "", category: "", save_path: "", rules: [] }) {
   el.querySelector(".f-browse").addEventListener("click", () => browseInto(el.querySelector(".f-save")));
   return el;
 }
+async function syncDefaultButton() {
+  const isDefault = await invoke("is_default_handler").catch(() => false);
+  $("make-default").disabled = isDefault;
+  $("make-default").textContent = isDefault ? "KDownloader opens magnet links and .torrent files" : "Open magnet links and .torrent files with KDownloader";
+}
+$("make-default").addEventListener("click", () => invoke("make_default_handler").then(syncDefaultButton).catch(showError));
+
 function openSettings() {
   const s = settingsCache || {};
+  syncDefaultButton();
   $("s-downloaddir").value = s.download_dir || "";
   $("s-gdown").value = s.global_down_kbps ?? 0; $("s-gup").value = s.global_up_kbps ?? 0;
   $("s-sched").checked = !!s.scheduler_enabled; $("s-from").value = toHHMM(s.sched_from_min ?? 480); $("s-to").value = toHHMM(s.sched_to_min ?? 1080);
