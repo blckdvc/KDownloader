@@ -5,10 +5,10 @@ use objc2::runtime::AnyObject;
 use objc2::{AllocAnyThread, MainThreadMarker};
 use objc2_app_kit::{
     NSApplication, NSBezierPath, NSColor, NSCompositingOperation, NSFont, NSFontAttributeName,
-    NSForegroundColorAttributeName, NSImage, NSImageNameApplicationIcon, NSImageView,
+    NSForegroundColorAttributeName, NSImage, NSImageView,
     NSStringDrawing,
 };
-use objc2_foundation::{NSDictionary, NSPoint, NSRect, NSSize, NSString};
+use objc2_foundation::{NSData, NSDictionary, NSPoint, NSRect, NSSize, NSString};
 use std::time::Duration;
 
 use crate::{direct, Shared};
@@ -74,10 +74,14 @@ pub fn update(idle: bool, down: &str, up: &str) {
     #[allow(deprecated)]
     image.lockFocus();
     unsafe {
-        // The app icon shrinks to the top so the speeds leave the sphere clear.
-        if let Some(icon) = NSImage::imageNamed(NSImageNameApplicationIcon) {
-            icon.drawInRect_fromRect_operation_fraction(
-                NSRect::new(NSPoint::new(20.0, 40.0), NSSize::new(88.0, 88.0)),
+        // The icon's tile, redrawn with the mark raised so the speeds leave the sphere clear.
+        let tile_rect = NSRect::new(NSPoint::new(13.0, 13.0), NSSize::new(102.0, 102.0));
+        NSColor::colorWithCalibratedRed_green_blue_alpha(0.05, 0.075, 0.15, 1.0).setFill();
+        NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(tile_rect, 23.0, 23.0).fill();
+        let data = NSData::with_bytes(include_bytes!("../icons/dock-mark.png"));
+        if let Some(mark) = NSImage::initWithData(NSImage::alloc(), &data) {
+            mark.drawInRect_fromRect_operation_fraction(
+                NSRect::new(NSPoint::new(26.0, 46.0), NSSize::new(76.0, 76.0)),
                 NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0)),
                 NSCompositingOperation::SourceOver,
                 1.0,
@@ -123,10 +127,10 @@ pub fn update(idle: bool, down: &str, up: &str) {
         let pad_x = 12.0;
         let pad_y = 3.0;
         let line_gap = 0.0;
-        let pill_w = (text_w + pad_x * 2.0).min(104.0);
+        let pill_w = (text_w + pad_x * 2.0).min(96.0);
         let pill_h = line_h * 2.0 + line_gap + pad_y * 2.0;
         let pill_x = (128.0 - pill_w) / 2.0;
-        let pill_y = 12.0;
+        let pill_y = 16.0;
         let pill = NSRect::new(NSPoint::new(pill_x, pill_y), NSSize::new(pill_w, pill_h));
         let radius = pill_h / 2.0;
         let path =
