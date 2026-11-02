@@ -44,7 +44,7 @@ All app settings live in `~/Library/Application Support/com.kdownloader.desktop/
 ## Project layout
 
 ```
-torrent-client/
+KDownloader/
 ├── src-tauri/          Rust backend (Tauri app + librqbit engine)
 │   ├── src/lib.rs      Session + Tauri commands
 │   ├── src/main.rs     entry point
