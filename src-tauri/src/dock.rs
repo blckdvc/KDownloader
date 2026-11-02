@@ -5,10 +5,10 @@ use objc2::runtime::AnyObject;
 use objc2::{AllocAnyThread, MainThreadMarker};
 use objc2_app_kit::{
     NSApplication, NSBezierPath, NSColor, NSCompositingOperation, NSFont, NSFontAttributeName,
-    NSForegroundColorAttributeName, NSImage, NSImageView,
+    NSForegroundColorAttributeName, NSImage, NSImageNameApplicationIcon, NSImageView,
     NSStringDrawing,
 };
-use objc2_foundation::{NSData, NSDictionary, NSPoint, NSRect, NSSize, NSString};
+use objc2_foundation::{NSDictionary, NSPoint, NSRect, NSSize, NSString};
 use std::time::Duration;
 
 use crate::{direct, Shared};
@@ -74,27 +74,14 @@ pub fn update(idle: bool, down: &str, up: &str) {
     #[allow(deprecated)]
     image.lockFocus();
     unsafe {
-        // The icon, in the same place as when idle.
-        let no_crop = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0));
-        let layers: [(&[u8], NSRect); 2] = [
-            (
-                include_bytes!("../icons/dock-tile.png"),
+        // Base app icon.
+        if let Some(icon) = NSImage::imageNamed(NSImageNameApplicationIcon) {
+            icon.drawInRect_fromRect_operation_fraction(
                 NSRect::new(NSPoint::new(0.0, 0.0), size),
-            ),
-            (
-                include_bytes!("../icons/dock-mark.png"),
-                NSRect::new(NSPoint::new(0.0, 0.0), size),
-            ),
-        ];
-        for (png, rect) in layers {
-            if let Some(layer) = NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(png)) {
-                layer.drawInRect_fromRect_operation_fraction(
-                    rect,
-                    no_crop,
-                    NSCompositingOperation::SourceOver,
-                    1.0,
-                );
-            }
+                NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0)),
+                NSCompositingOperation::SourceOver,
+                1.0,
+            );
         }
 
         // Shared font; white numbers with qBittorrent-style colored arrows.
