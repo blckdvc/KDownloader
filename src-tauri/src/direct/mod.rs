@@ -14,7 +14,6 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-const KEYCHAIN_SERVICE: &str = "com.pulsar.torrent";
 
 #[derive(Serialize)]
 pub struct AccountView {
@@ -26,7 +25,22 @@ pub struct AccountView {
 }
 
 fn keychain(provider: Provider) -> Result<keyring::Entry, String> {
-    keyring::Entry::new(KEYCHAIN_SERVICE, provider.id()).map_err(|e| e.to_string())
+    keyring::Entry::new(crate::migrate::NEW_ID, provider.id()).map_err(|e| e.to_string())
+}
+
+/// The saved key, moved over from the app's former Keychain entry if it's still there.
+fn stored_key(provider: Provider) -> Option<String> {
+    let entry = keychain(provider).ok()?;
+    match entry.get_password() {
+        Err(keyring::Error::NoEntry) => {}
+        found => return found.ok(),
+    }
+    let old = keyring::Entry::new(crate::migrate::OLD_ID, provider.id()).ok()?;
+    let key = old.get_password().ok()?;
+    if entry.set_password(&key).is_ok() {
+        let _ = old.delete_credential();
+    }
+    Some(key)
 }
 
 #[tauri::command]
@@ -111,7 +125,7 @@ pub fn dd_set_settings(engine: State<Engine>, settings: Settings) {
 pub async fn dd_list_accounts(engine: State<'_, Engine>) -> Result<Vec<AccountView>, String> {
     let mut views = Vec::new();
     for provider in Provider::ALL {
-        let key = keychain(provider).ok().and_then(|e| e.get_password().ok());
+        let key = stored_key(provider);
         let (account, error) = match &key {
             Some(key) => match engine.accounts().verify(provider, key).await {
                 Ok(account) => (Some(account), None),
@@ -258,7 +272,7 @@ pub fn init(app: &mut tauri::App, config_dir: &Path) -> tauri::Result<()> {
     let keys = engine.clone();
     std::thread::spawn(move || {
         for provider in Provider::ALL {
-            let key = keychain(provider).ok().and_then(|e| e.get_password().ok());
+            let key = stored_key(provider);
             keys.accounts().set_key(provider, key);
         }
         tauri::async_runtime::spawn(keys.run_loop());

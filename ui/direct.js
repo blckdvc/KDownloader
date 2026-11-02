@@ -21,7 +21,7 @@ const LABELS = { queued: "Queued", active: "Downloading", paused: "Paused", wait
 const TORRENT_LINKS = /magnet:\?[^\s"'<>]+|https?:\/\/[^\s"'<>]+\.torrent(?:\?[^\s"'<>]*)?/gi;
 
 let items = [];
-const GRABBED_KEY = "pulsar-dd-grabbed";
+const GRABBED_KEY = "kdownloader-dd-grabbed";
 let grabbed = [];
 try { grabbed = JSON.parse(localStorage.getItem(GRABBED_KEY) || "[]"); } catch (e) {}
 let settings = null;
@@ -85,7 +85,7 @@ function showApp(name) {
     document.getElementById(`view-${t}`).hidden = t !== name;
   }
   // Hidden tabs aren't drawn: bring the new one up to date at once.
-  window.dispatchEvent(new Event("pulsar-tab"));
+  window.dispatchEvent(new Event("kdownloader-tab"));
 }
 
 function routeClipboard(text) {
@@ -354,7 +354,7 @@ document.querySelectorAll("#dd-queue-view th[data-dd-sort]").forEach((th) => {
 
 // ---- resizable columns -----------------------------------------------------
 resizableColumns({
-  storageKey: "pulsar-dd-colw",
+  storageKey: "kdownloader-dd-colw",
   defaults: { size: 80, progress: 150, status: 150, speed: 92, eta: 72, conns: 56, service: 110, package: 130 },
   table: document.querySelector("#dd-queue-view .ttable"),
   headers: document.querySelectorAll("#dd-queue-view th[data-dd-sort]"),
@@ -681,7 +681,7 @@ async function refresh() {
   notifyFinished(items, next);
   items = next;
   const speed = items.reduce((sum, i) => sum + (i.speed || 0), 0);
-  window.pulsarDirectSpeed = speed; // read by the Bandwidth tab
+  window.kdownloaderDirectSpeed = speed; // read by the Bandwidth tab
   if (document.getElementById("view-direct").hidden) return;
   for (const id of selectedIds) if (!items.some((i) => i.id === id)) selectedIds.delete(id);
   renderSidebar();
@@ -689,7 +689,7 @@ async function refresh() {
   syncToolbar();
   setText($("totals"), `↓ ${bytes(speed)}/s`);
 }
-window.addEventListener("pulsar-tab", refresh);
+window.addEventListener("kdownloader-tab", refresh);
 
 document.getElementById("app-tab-torrent").addEventListener("click", () => showApp("torrent"));
 document.getElementById("app-tab-direct").addEventListener("click", () => showApp("direct"));

@@ -6,9 +6,8 @@ use std::ffi::c_void;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, Url};
 
-use crate::{AddOpts, Shared};
+use crate::{migrate, AddOpts, Shared};
 
-const BUNDLE_ID: &str = "com.pulsar.torrent";
 const MAGNET: &str = "magnet";
 const TORRENT_TYPE: &str = "org.bittorrent.torrent";
 const ALL_ROLES: u32 = 0xFFFF_FFFF;
@@ -63,24 +62,35 @@ fn cf(text: &NSString) -> *const c_void {
     (text as *const NSString).cast()
 }
 
-/// Whether macOS sends magnet links here.
-#[tauri::command]
-pub fn is_default_handler() -> bool {
+fn magnet_handler() -> Option<String> {
     let scheme = NSString::from_str(MAGNET);
     // SAFETY: the scheme is a live NSString, toll-free bridged to CFString, and the
     // result is an owned CFString or null, which `from_raw` handles.
     let handler = unsafe {
         Retained::<NSString>::from_raw(LSCopyDefaultHandlerForURLScheme(cf(&scheme)).cast())
     };
-    handler.is_some_and(|h| h.to_string().eq_ignore_ascii_case(BUNDLE_ID))
+    handler.map(|h| h.to_string())
+}
+
+/// Whether macOS sends magnet links here.
+#[tauri::command]
+pub fn is_default_handler() -> bool {
+    magnet_handler().is_some_and(|h| h.eq_ignore_ascii_case(migrate::NEW_ID))
+}
+
+/// Carries the user's choice over from the app's former identity.
+pub fn keep_default() {
+    if magnet_handler().is_some_and(|h| h.eq_ignore_ascii_case(migrate::OLD_ID)) {
+        let _ = make_default_handler();
+    }
 }
 
 /// Makes this app open magnet links and .torrent files. Only ever runs on the
-/// user's request: it changes a system-wide choice.
+/// user's request, or to keep it: it changes a system-wide choice.
 #[tauri::command]
 pub fn make_default_handler() -> Result<(), String> {
     let (scheme, kind, bundle) =
-        (NSString::from_str(MAGNET), NSString::from_str(TORRENT_TYPE), NSString::from_str(BUNDLE_ID));
+        (NSString::from_str(MAGNET), NSString::from_str(TORRENT_TYPE), NSString::from_str(migrate::NEW_ID));
     // SAFETY: all three are live NSStrings, toll-free bridged to CFString.
     let (links, files) = unsafe {
         (
