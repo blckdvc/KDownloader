@@ -522,14 +522,14 @@ async fn remove_torrent(state: State<'_, Shared>, id: u64, delete_files: bool) -
     // session only forgets it.
     let files = handle.as_ref().filter(|_| delete_files).map(|h| torrent_paths(h)).unwrap_or_default();
     state.session.delete((id as usize).into(), false).await.map_err(e2s)?;
-    if !files.is_empty() {
-        direct::engine::to_trash(&files).map_err(e2s)?;
-    }
     if let Some(hash) = hash {
         if let Ok(mut m) = state.meta.lock() {
             m.remove(&hash);
         }
         state.save_meta();
+    }
+    if !files.is_empty() {
+        direct::engine::to_trash(&files).map_err(e2s)?;
     }
     Ok(())
 }
@@ -1032,5 +1032,96 @@ mod log_tests {
         let log = std::fs::read(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
         assert_eq!(log, b"short");
+    }
+}
+
+#[cfg(test)]
+mod missing_file_tests {
+    use librqbit::api::TorrentIdOrHash;
+    use librqbit::spawn_utils::BlockingSpawner;
+    use librqbit::{
+        create_torrent, AddTorrent, AddTorrentOptions, CreateTorrentOptions, ManagedTorrentState,
+        Session, SessionOptions, SessionPersistenceConfig,
+    };
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    async fn session(dir: &Path) -> Arc<Session> {
+        Session::new_with_opts(
+            dir.to_path_buf(),
+            SessionOptions {
+                dht: None,
+                fastresume: true,
+                persistence: Some(SessionPersistenceConfig::Json { folder: Some(dir.join("session")) }),
+                listen: None,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn wait_for(session: &Session, id: TorrentIdOrHash, done: impl Fn(&ManagedTorrentState) -> bool) -> bool {
+        for _ in 0..200 {
+            if session.get(id).is_some_and(|t| t.with_state(&done)) {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        false
+    }
+
+    /// Adds a torrent over data already on disk, then restarts the session.
+    async fn restarted(name: &str, delete: bool) -> (PathBuf, Arc<Session>, TorrentIdOrHash) {
+        let dir = std::env::temp_dir().join(format!("kdownloader-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("data.bin");
+        std::fs::write(&file, vec![7u8; 256 * 1024]).unwrap();
+        let options = CreateTorrentOptions { piece_length: Some(16 * 1024), ..Default::default() };
+        let torrent = create_torrent(&file, options, &BlockingSpawner::new(1)).await.unwrap();
+        let id = TorrentIdOrHash::Hash(torrent.info_hash());
+
+        let first = session(&dir).await;
+        let add = AddTorrentOptions {
+            output_folder: Some(dir.to_string_lossy().into_owned()),
+            overwrite: true,
+            ..Default::default()
+        };
+        first.add_torrent(AddTorrent::from_bytes(torrent.as_bytes().unwrap()), Some(add)).await.unwrap();
+        assert!(wait_for(&first, id, |s| matches!(s, ManagedTorrentState::Live(_))).await);
+        first.stop().await;
+        drop(first);
+
+        if delete {
+            std::fs::remove_file(&file).unwrap();
+        }
+        let second = session(&dir).await;
+        (dir, second, id)
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_deleted_file_is_an_error_until_the_user_resumes() {
+        let (dir, session, id) = restarted("deleted", true).await;
+        assert!(wait_for(&session, id, |s| matches!(s, ManagedTorrentState::Error(_))).await);
+        let error = session.get(id).unwrap().with_state(|s| match s {
+            ManagedTorrentState::Error(e) => format!("{e:#}"),
+            _ => String::new(),
+        });
+        assert!(error.contains("file missing from disk: data.bin"), "{error}");
+
+        let handle = session.get(id).unwrap();
+        session.unpause(&handle).await.unwrap();
+        assert!(wait_for(&session, id, |s| matches!(s, ManagedTorrentState::Live(_))).await);
+        session.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_intact_file_starts_normally() {
+        let (dir, session, id) = restarted("intact", false).await;
+        assert!(wait_for(&session, id, |s| matches!(s, ManagedTorrentState::Live(_))).await);
+        session.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
