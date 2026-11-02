@@ -83,7 +83,7 @@ pub fn update(idle: bool, down: &str, up: &str) {
             ),
             (
                 include_bytes!("../icons/dock-mark.png"),
-                NSRect::new(NSPoint::new(26.0, 46.0), NSSize::new(76.0, 76.0)),
+                NSRect::new(NSPoint::new(13.0, 37.0), NSSize::new(102.0, 102.0)),
             ),
         ];
         for (png, rect) in layers {
@@ -98,7 +98,7 @@ pub fn update(idle: bool, down: &str, up: &str) {
         }
 
         // Shared font; white numbers with qBittorrent-style colored arrows.
-        let font = NSFont::boldSystemFontOfSize(17.0);
+        let font = NSFont::boldSystemFontOfSize(21.0);
         let kf: &NSString = NSFontAttributeName;
         let kc: &NSString = NSForegroundColorAttributeName;
         let vf: &AnyObject = &font;
@@ -133,13 +133,13 @@ pub fn update(idle: bool, down: &str, up: &str) {
         let text_w = down_w.max(up_w);
 
         // Translucent rounded capsule hugging the text (soft corners + alpha).
-        let pad_x = 12.0;
-        let pad_y = 3.0;
+        let pad_x = 8.0;
+        let pad_y = 1.0;
         let line_gap = 0.0;
-        let pill_w = (text_w + pad_x * 2.0).min(96.0);
+        let pill_w = (text_w + pad_x * 2.0).min(100.0);
         let pill_h = line_h * 2.0 + line_gap + pad_y * 2.0;
         let pill_x = (128.0 - pill_w) / 2.0;
-        let pill_y = 16.0;
+        let pill_y = 15.0;
         let pill = NSRect::new(NSPoint::new(pill_x, pill_y), NSSize::new(pill_w, pill_h));
         let radius = pill_h / 2.0;
         let path =
