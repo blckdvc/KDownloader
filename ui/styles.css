@@ -153,6 +153,8 @@ code { background: var(--track); padding: 1px 5px; border-radius: 4px; font-size
 .statusbar .spacer { flex: 1; }
 .link { border: none; background: none; color: var(--accent); padding: 2px 4px; font-size: 12px; max-width: 32vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .link:hover { background: none; text-decoration: underline; }
+.details-toggle[aria-pressed="true"] { color: var(--text); background: var(--sel); border-radius: 5px; }
+.details-toggle[aria-pressed="true"]:hover { background: var(--sel); text-decoration: none; }
 
 /* Modal */
 .overlay { position: fixed; inset: 0; background: var(--overlay); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px; }

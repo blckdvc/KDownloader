@@ -272,7 +272,7 @@ async function removeNow(ids, del) {
   try {
     await Promise.all(ids.map((id) => invoke("remove_torrent", { id, deleteFiles: del })));
     for (const id of ids) selectedIds.delete(id);
-    if (!selectedIds.size) { selectedId = null; $("detail").hidden = true; }
+    if (!selectedIds.size) { selectedId = null; loadTab(); }
     await refresh();
   } catch (e) { showError(e); }
 }
@@ -316,7 +316,7 @@ $("tbody").addEventListener("contextmenu", (e) => {
       : { label: "⏸ Pause", act: () => invoke("pause_torrent", { id }).then(refresh).catch(showError) },
     { label: "📡 Force re-announce (reconnect peers)", act: () => invoke("reannounce", { id }).then(refresh).catch(showError) },
     { label: "📂 Open destination folder", act: () => t.output_folder && invoke("reveal_path", { path: t.output_folder }).catch(showError) },
-    { label: "ⓘ Details / category…", act: () => { selectTorrent(id); $("detail").hidden = false; } },
+    { label: "ⓘ Details / category…", act: () => { selectTorrent(id); showDetails(true); } },
     { sep: true },
     { label: "📋 Copy info hash", act: () => { try { navigator.clipboard.writeText(t.info_hash || ""); } catch (_) {} } },
     { sep: true },
@@ -349,7 +349,10 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     openRemoveModal();
   } else if (e.key === "Escape") {
-    hideCtx(); if (!$("detail").hidden) $("detail").hidden = true;
+    hideCtx(); showDetails(false);
+  } else if (e.metaKey && e.key.toLowerCase() === "i") {
+    e.preventDefault();
+    showDetails($("detail").hidden);
   } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     const order = rowOrder(); if (!order.length) return;
     e.preventDefault();
@@ -367,13 +370,12 @@ function paintSelection() {
 }
 function selectTorrent(id) {
   selectedId = id; anchorId = id; selectedIds = new Set([id]); contentFor = null;
-  $("detail").hidden = false;
   paintSelection(); loadTab();
 }
 function selectRows(ids) {
   selectedIds = new Set(ids); selectedId = ids[ids.length - 1] ?? null; contentFor = null;
   paintSelection();
-  if (selectedId == null) $("detail").hidden = true; else loadTab();
+  loadTab();
 }
 function pickRow(id, e) {
   const picked = nextSelection(selectedIds, rowOrder(), anchorId, id, e);
@@ -381,7 +383,18 @@ function pickRow(id, e) {
   if (e.metaKey || e.ctrlKey) anchorId = id;
   selectRows(picked);
 }
-$("detail-close").addEventListener("click", () => { $("detail").hidden = true; });
+// The pane is the user's to open: clicking a row only selects it.
+const DETAILS_KEY = "kdownloader-details-open";
+function showDetails(open) {
+  $("detail").hidden = !open;
+  $("details-toggle").setAttribute("aria-pressed", String(open));
+  try { localStorage.setItem(DETAILS_KEY, open ? "1" : ""); } catch (e) {}
+  contentFor = null;
+  loadTab();
+}
+$("detail-close").addEventListener("click", () => showDetails(false));
+$("details-toggle").addEventListener("click", () => showDetails($("detail").hidden));
+try { showDetails(localStorage.getItem(DETAILS_KEY) === "1"); } catch (e) {}
 document.querySelectorAll(".dtab").forEach((b) => b.addEventListener("click", () => {
   detailTab = b.dataset.tab; contentFor = null;
   document.querySelectorAll(".dtab").forEach((x) => x.classList.toggle("active", x === b));
@@ -390,7 +403,8 @@ document.querySelectorAll(".dtab").forEach((b) => b.addEventListener("click", ()
 function curTorrent() { return torrents.find((t) => t.id === selectedId) || null; }
 
 function loadTab() {
-  if (selectedId == null) return;
+  if ($("detail").hidden) return;
+  if (selectedId == null) { $("detail-body").innerHTML = '<p class="muted">Select a torrent to see its details.</p>'; return; }
   if (detailTab === "general") renderGeneral();
   else if (detailTab === "trackers") fetchTrackers();
   else if (detailTab === "peers") fetchPeers();
@@ -560,7 +574,7 @@ async function refresh() {
   try { torrents = await invoke("list_torrents"); } catch (e) { showError(e); return; } finally { refreshing = false; }
   // The Bandwidth tab reads `torrents`, so only the drawing is skipped when hidden.
   if ($("view-torrent").hidden) return;
-  if (selectedId != null && !torrents.some((t) => t.id === selectedId)) { selectedId = null; $("detail").hidden = true; }
+  if (selectedId != null && !torrents.some((t) => t.id === selectedId)) { selectedId = null; loadTab(); }
   renderSidebar(); renderTable(); syncToolbar();
   let td = 0, tu = 0;
   for (const t of torrents) { const m = metrics(t); td += m.dl; tu += m.ul; }
