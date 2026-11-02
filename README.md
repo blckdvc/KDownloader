@@ -17,7 +17,7 @@ small native binary rather than a 150 MB Electron bundle.
 - **Speed limits** — global (adjustable live) and per-torrent (set at add time)
 - **Per-file selection** — choose which files in a torrent to download
 - **Per-torrent save path** and **categories / tags** (persisted, with a category filter)
-- **Watch folder** — auto-adds `.torrent` files dropped into a folder, then moves them to `.pulsar-added`
+- **Watch folder** — auto-adds `.torrent` files dropped into a folder, then moves them to `.kdownloader-added`
 - **Scheduler** — apply alternate speed limits during a daily time window
 - **RSS auto-download** — poll feeds and add items whose title matches your regex rules
 
@@ -39,12 +39,12 @@ small native binary rather than a 150 MB Electron bundle.
   one adjustable live. Changing the **global download folder** (status bar → *Change…*) applies
   immediately to newly added torrents; already-added torrents keep their folder.
 
-All app settings live in `~/Library/Application Support/com.pulsar.torrent/`.
+All app settings live in `~/Library/Application Support/com.kdownloader.desktop/`.
 
 ## Project layout
 
 ```
-torrent-client/
+KDownloader/
 ├── src-tauri/          Rust backend (Tauri app + librqbit engine)
 │   ├── src/lib.rs      Session + Tauri commands
 │   ├── src/main.rs     entry point

@@ -29,7 +29,7 @@ function record() {
     torrentDown += m.dl;
     torrentUp += m.ul;
   }
-  const direct = window.pulsarDirectSpeed || 0;
+  const direct = window.kdownloaderDirectSpeed || 0;
   samples.push({ at: Date.now(), torrentDown, torrentUp, direct, total: torrentDown + torrentUp + direct });
   if (samples.length > MAX_SECONDS) samples.shift();
   renderMini();

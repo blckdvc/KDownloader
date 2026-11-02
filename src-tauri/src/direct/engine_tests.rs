@@ -132,7 +132,7 @@ impl Drop for Fixture {
 fn fixture() -> Fixture {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let dir = std::env::temp_dir().join(format!(
-        "pulsar-direct-test-{}-{}",
+        "kdownloader-direct-test-{}-{}",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::SeqCst)
     ));
@@ -305,7 +305,7 @@ async fn speed_limit_is_respected() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn archives_are_extracted() {
-    let work = std::env::temp_dir().join(format!("pulsar-direct-arch-{}", std::process::id()));
+    let work = std::env::temp_dir().join(format!("kdownloader-direct-arch-{}", std::process::id()));
     std::fs::create_dir_all(&work).unwrap();
     std::fs::write(work.join("hello.txt"), "bonjour").unwrap();
     let archive = work.join("pack.tar.gz");
@@ -498,7 +498,7 @@ async fn quitting_during_extraction_doesnt_download_again() {
 
 #[test]
 fn simultaneous_saves_never_leave_a_broken_file() {
-    let dir = std::env::temp_dir().join(format!("pulsar-saves-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("kdownloader-saves-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("queue.json");
     let engine = Engine::new(path.clone(), dir.clone());
@@ -530,7 +530,7 @@ fn simultaneous_saves_never_leave_a_broken_file() {
 
 #[test]
 fn stray_bytes_after_a_complete_queue_lose_nothing() {
-    let dir = std::env::temp_dir().join(format!("pulsar-stray-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("kdownloader-stray-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("queue.json");
     let engine = Engine::new(path.clone(), dir.clone());
@@ -545,7 +545,7 @@ fn stray_bytes_after_a_complete_queue_lose_nothing() {
 
 #[test]
 fn corrupt_queue_is_set_aside_not_overwritten() {
-    let dir = std::env::temp_dir().join(format!("pulsar-corrupt-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("kdownloader-corrupt-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("queue.json");
     std::fs::write(&path, "{ not json").unwrap();
@@ -568,7 +568,7 @@ async fn copying_a_link_visits_only_likely_downloads() {
 
 #[test]
 fn unchecked_links_are_listed_without_contact() {
-    let engine = Engine::new(std::env::temp_dir().join("pulsar-unchecked.json"), PathBuf::from("/tmp"));
+    let engine = Engine::new(std::env::temp_dir().join("kdownloader-unchecked.json"), PathBuf::from("/tmp"));
     let probes = engine.list_unchecked("https://rapidgator.net/file/abc/film.rar");
     assert!(probes[0].unchecked && probes[0].provider.is_none());
     assert_eq!(probes[0].name, "film.rar");
@@ -578,9 +578,9 @@ fn unchecked_links_are_listed_without_contact() {
 #[test]
 #[ignore]
 fn deleting_moves_a_file_to_the_trash() {
-    let dir = std::env::temp_dir().join(format!("pulsar-trash-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("kdownloader-trash-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let file = dir.join("pulsar-trash-test.txt");
+    let file = dir.join("kdownloader-trash-test.txt");
     std::fs::write(&file, "x").unwrap();
     to_trash(std::slice::from_ref(&file)).unwrap();
     assert!(!file.exists());
@@ -669,7 +669,7 @@ async fn extraction_can_be_retried() {
 
 #[tokio::test]
 async fn rar_size_is_known_before_extraction() {
-    let dir = std::env::temp_dir().join(format!("pulsar-size-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("kdownloader-size-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let archive = dir.join("solid.rar");
     std::fs::write(&archive, include_bytes!("testdata/solid.rar")).unwrap();
@@ -684,7 +684,7 @@ async fn rar_size_is_known_before_extraction() {
 
 #[test]
 fn add_options_apply_to_the_batch() {
-    let dir = std::env::temp_dir().join(format!("pulsar-opts-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("kdownloader-opts-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let engine = Engine::new(dir.join("q.json"), dir.clone());
     let probe = Probe { url: "http://x/a.zip".into(), name: "a.zip".into(), package: "a".into(), online: true, ..Default::default() };
@@ -718,7 +718,7 @@ async fn skipped_extraction_leaves_the_archive() {
 
 #[test]
 fn queue_order_can_change() {
-    let dir = std::env::temp_dir().join(format!("pulsar-order-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("kdownloader-order-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let engine = Engine::new(dir.join("q.json"), dir.clone());
     let probe = |n: &str| Probe { url: format!("http://x/{n}"), name: n.into(), package: "p".into(), online: true, ..Default::default() };
