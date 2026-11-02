@@ -522,14 +522,14 @@ async fn remove_torrent(state: State<'_, Shared>, id: u64, delete_files: bool) -
     // session only forgets it.
     let files = handle.as_ref().filter(|_| delete_files).map(|h| torrent_paths(h)).unwrap_or_default();
     state.session.delete((id as usize).into(), false).await.map_err(e2s)?;
-    if !files.is_empty() {
-        direct::engine::to_trash(&files).map_err(e2s)?;
-    }
     if let Some(hash) = hash {
         if let Ok(mut m) = state.meta.lock() {
             m.remove(&hash);
         }
         state.save_meta();
+    }
+    if !files.is_empty() {
+        direct::engine::to_trash(&files).map_err(e2s)?;
     }
     Ok(())
 }
