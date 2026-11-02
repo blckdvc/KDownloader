@@ -769,7 +769,8 @@ pub fn run() {
                     librqbit::tracing_subscriber_config_utils::InitLoggingOptions {
                         default_rust_log_value: Some("info"),
                         log_file: Some(&log_path),
-                        log_file_rust_log: Some("info,librqbit=debug,librqbit_upnp=debug"),
+                        // The live module logs every piece: 100 KB/s at full speed.
+                        log_file_rust_log: Some("info,librqbit=debug,librqbit::torrent_state::live=info,librqbit_upnp=debug"),
                         log_file_json: false,
                     },
                 );
