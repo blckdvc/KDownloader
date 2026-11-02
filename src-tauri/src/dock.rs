@@ -74,7 +74,7 @@ pub fn update(idle: bool, down: &str, up: &str) {
     #[allow(deprecated)]
     image.lockFocus();
     unsafe {
-        // The icon in two layers, with the mark raised so the speeds leave the sphere clear.
+        // The icon, in the same place as when idle.
         let no_crop = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0));
         let layers: [(&[u8], NSRect); 2] = [
             (
@@ -83,7 +83,7 @@ pub fn update(idle: bool, down: &str, up: &str) {
             ),
             (
                 include_bytes!("../icons/dock-mark.png"),
-                NSRect::new(NSPoint::new(4.0, 26.0), NSSize::new(120.0, 120.0)),
+                NSRect::new(NSPoint::new(0.0, 0.0), size),
             ),
         ];
         for (png, rect) in layers {
