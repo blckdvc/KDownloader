@@ -610,7 +610,7 @@ async function renderAccounts() {
   drawAccounts();
 }
 
-$("settings-btn").addEventListener("click", async () => {
+async function openSettings() {
   const s = await call("dd_get_settings");
   if (!s) return;
   $("s-dir").value = s.download_dir;
@@ -625,6 +625,11 @@ $("settings-btn").addEventListener("click", async () => {
   $("modal").hidden = false;
   openAccount = null;
   renderAccounts();
+}
+$("settings-btn").addEventListener("click", openSettings);
+$("limits-badge").addEventListener("click", async () => {
+  await openSettings();
+  $("s-limit").select();
 });
 $("s-removal").addEventListener("change", (e) => setRememberedRemoval(e.target.value));
 $("modal-close").addEventListener("click", () => ($("modal").hidden = true));
@@ -654,7 +659,7 @@ async function loadSettings() {
   const dir = settings.download_dir;
   $("reveal").textContent = `📁 ${dir.split("/").filter(Boolean).pop() || dir}`;
   $("reveal").title = `Reveal ${dir} in Finder`;
-  $("limits-badge").textContent = settings.speed_limit_kib ? `↓ limit ${bytes(settings.speed_limit_kib * 1024)}/s` : "";
+  $("limits-badge").textContent = settings.speed_limit_kib ? `↓ limit ${bytes(settings.speed_limit_kib * 1024)}/s` : "↓ no limit";
 }
 $("reveal").addEventListener("click", () => settings && call("reveal_path", { path: settings.download_dir }));
 

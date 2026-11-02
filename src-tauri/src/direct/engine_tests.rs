@@ -574,6 +574,12 @@ fn unchecked_links_are_listed_without_contact() {
     assert_eq!(probes[0].name, "film.rar");
 }
 
+#[test]
+fn trashing_a_file_already_gone_is_fine() {
+    let gone = std::env::temp_dir().join(format!("kdownloader-gone-{}", std::process::id()));
+    assert!(to_trash(&[gone]).is_ok());
+}
+
 /// Touches the user's real Trash: `cargo test -- --ignored deleting`.
 #[test]
 #[ignore]

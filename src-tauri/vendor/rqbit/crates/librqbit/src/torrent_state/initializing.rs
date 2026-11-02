@@ -83,6 +83,24 @@ impl TorrentStateInitializing {
         self.check_running.store(false, Ordering::Release);
     }
 
+    /// A wanted file we hold pieces of that's gone. The storage has just recreated
+    /// it empty, so being empty is the sign: a started file is always full length.
+    fn missing_file(&self, have_pieces: &dyn BitV) -> Option<&std::path::Path> {
+        let folder = &self.shared.options.output_folder;
+        self.metadata.file_infos.iter().enumerate().find_map(|(idx, fi)| {
+            let wanted = self.only_files.as_ref().is_none_or(|o| o.contains(&idx));
+            let held = have_pieces
+                .as_slice()
+                .get(fi.piece_range_usize())
+                .is_some_and(|pieces| pieces.any());
+            let empty = || {
+                std::fs::metadata(folder.join(&fi.relative_filename)).map_or(true, |m| m.len() == 0)
+            };
+            (wanted && held && !fi.attrs.padding && fi.len > 0 && empty())
+                .then_some(fi.relative_filename.as_path())
+        })
+    }
+
     async fn validate_fastresume(
         &self,
         bitv_factory: &dyn BitVFactory,
@@ -206,6 +224,12 @@ impl TorrentStateInitializing {
                 .await
                 .context("error loading have_pieces")?
         };
+
+        if let Some(hp) = have_pieces.as_ref()
+            && let Some(file) = self.missing_file(&**hp)
+        {
+            anyhow::bail!("file missing from disk: {}", file.display());
+        }
 
         let have_pieces = self.validate_fastresume(&*bitv_factory, have_pieces).await;
 

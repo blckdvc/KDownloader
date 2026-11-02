@@ -120,8 +120,9 @@
 
     <footer class="statusbar">
       <span id="count">0 torrents</span>
+      <button id="details-toggle" class="link details-toggle" title="Show details of the selected torrent (⌘I)" aria-pressed="false">Details</button>
       <span class="spacer"></span>
-      <span id="limits-badge" class="muted"></span>
+      <button id="limits-badge" class="link" title="Change speed limits"></button>
       <span id="totals">↓ 0 B/s&nbsp;&nbsp;↑ 0 B/s</span>
       <button id="reveal" class="link" title="Reveal download folder in Finder">Download folder</button>
     </footer>
@@ -219,7 +220,7 @@
       <button id="dd-start-all" class="link" title="Resume everything paused or failed">Start all</button>
       <button id="dd-pause-all" class="link">Pause all</button>
       <button id="dd-clear-done" class="link" title="Forget completed downloads, keeping their files">Clear completed</button>
-      <span id="dd-limits-badge" class="muted"></span>
+      <button id="dd-limits-badge" class="link" title="Change speed limit"></button>
       <span id="dd-totals">↓ 0 B/s</span>
       <button id="dd-reveal" class="link" title="Reveal download folder in Finder">Download folder</button>
     </footer>
