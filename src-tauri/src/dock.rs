@@ -83,7 +83,7 @@ pub fn update(idle: bool, down: &str, up: &str) {
             ),
             (
                 include_bytes!("../icons/dock-mark.png"),
-                NSRect::new(NSPoint::new(13.0, 37.0), NSSize::new(102.0, 102.0)),
+                NSRect::new(NSPoint::new(4.0, 26.0), NSSize::new(120.0, 120.0)),
             ),
         ];
         for (png, rect) in layers {
