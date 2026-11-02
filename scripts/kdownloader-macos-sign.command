@@ -76,8 +76,8 @@ EOF
     P12_LEGACY=(-legacy -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1)
   fi
   openssl pkcs12 -export -inkey "$TMP/key.pem" -in "$TMP/cert.pem" -out "$TMP/id.p12" \
-    -passout pass:pulsar -name "$IDENTITY" "${P12_LEGACY[@]}" >/dev/null 2>&1
-  security import "$TMP/id.p12" -k "$KEYCHAIN" -P pulsar -A -T /usr/bin/codesign >/dev/null
+    -passout pass:kdownloader -name "$IDENTITY" "${P12_LEGACY[@]}" >/dev/null 2>&1
+  security import "$TMP/id.p12" -k "$KEYCHAIN" -P kdownloader -A -T /usr/bin/codesign >/dev/null
   say "Trusting it for code signing — enter your macOS login password if asked…"
   security add-trusted-cert -r trustRoot -p codeSign "$TMP/cert.pem"
 fi

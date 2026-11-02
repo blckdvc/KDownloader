@@ -3,6 +3,7 @@ mod direct;
 mod dock;
 #[cfg(target_os = "macos")]
 mod handler;
+mod migrate;
 mod rss;
 mod upnp;
 mod watch;
@@ -761,6 +762,7 @@ fn open_file_limit_leaves_the_256_default_behind() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    migrate::run();
     tauri::Builder::default()
         // Both copies of the app share one session and port: focus the running one.
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
@@ -776,17 +778,17 @@ pub fn run() {
             let cfg_dir = app
                 .path()
                 .app_config_dir()
-                .unwrap_or_else(|_| std::env::temp_dir().join("com.pulsar.torrent"));
+                .unwrap_or_else(|_| std::env::temp_dir().join(migrate::NEW_ID));
             std::fs::create_dir_all(&cfg_dir)?;
 
             // Persistent logging (stderr + a rolling file in the config dir) so
             // connectivity issues (UPnP, listener, peers) are diagnosable.
             // Restarted past a size cap, as the log only grows while running.
-            let log_file = cfg_dir.join("pulsar.log");
+            let log_file = cfg_dir.join("kdownloader.log");
             if std::fs::metadata(&log_file).is_ok_and(|m| m.len() > MAX_LOG_BYTES) {
                 let _ = std::fs::remove_file(&log_file);
             }
-            let log_path = cfg_dir.join("pulsar.log").to_string_lossy().to_string();
+            let log_path = cfg_dir.join("kdownloader.log").to_string_lossy().to_string();
             // init_logging spawns a tokio task, so it must run inside the
             // async runtime (the setup closure itself is not in one).
             tauri::async_runtime::block_on(async {
@@ -933,6 +935,7 @@ pub fn run() {
 
             direct::init(app, &cfg_dir)?;
             #[cfg(target_os = "macos")]
+            handler::keep_default();
             handler::flush(app.handle());
             for notice in notices {
                 app.dialog().message(notice).title("KDownloader").show(|_| {});

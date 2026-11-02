@@ -1,3 +1,12 @@
+// One-time move of saved preferences from the app's former name.
+try {
+  for (const key of Object.keys(localStorage)) {
+    if (!key.startsWith("pulsar-")) continue;
+    localStorage.setItem(key.replace("pulsar-", "kdownloader-"), localStorage.getItem(key));
+    localStorage.removeItem(key);
+  }
+} catch {}
+
 // What the Torrent and Direct Download tabs share: efficient table updates,
 // column resizing, Finder-style selection and the context menu.
 // Touching only what changed keeps selections, tooltips and clicks intact across
@@ -99,7 +108,7 @@ function nextSelection(selected, order, anchor, id, e) {
 
 // What to do with files when removing, once the user has said: "keep", "trash", or
 // nothing to keep asking. Shared by both tabs.
-const REMOVAL_KEY = "pulsar-removal";
+const REMOVAL_KEY = "kdownloader-removal";
 function rememberedRemoval() {
   try { return localStorage.getItem(REMOVAL_KEY) || ""; } catch (e) { return ""; }
 }
@@ -111,7 +120,7 @@ function setRememberedRemoval(choice) {
 }
 
 // The Options panel is one state across both tabs, and is kept between launches.
-const OPTIONS_KEY = "pulsar-options-open";
+const OPTIONS_KEY = "kdownloader-options-open";
 function showOptions(open) {
   for (const prefix of ["", "dd-"]) {
     document.getElementById(`${prefix}opts`).hidden = !open;

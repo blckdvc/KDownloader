@@ -236,7 +236,7 @@ document.querySelectorAll("thead th[data-sort]").forEach((th) => {
 
 // ---- fixed + resizable columns -------------------------------------------
 resizableColumns({
-  storageKey: "pulsar-colw",
+  storageKey: "kdownloader-colw",
   defaults: { size: 80, progress: 150, status: 115, seeds: 84, peers: 84, down: 92, up: 92, eta: 80, ratio: 72 },
   table: document.querySelector("#view-torrent .ttable"),
   headers: document.querySelectorAll("#view-torrent thead th[data-sort]"),
@@ -571,7 +571,7 @@ async function refresh() {
     else if (detailTab === "peers") fetchPeers();
   }
 }
-window.addEventListener("pulsar-tab", refresh);
+window.addEventListener("kdownloader-tab", refresh);
 
 // ---- about ---------------------------------------------------------------
 $("about-logo").append(document.querySelector("#about-open .logo").cloneNode(true));
