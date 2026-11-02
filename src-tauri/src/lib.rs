@@ -10,7 +10,7 @@ mod watch;
 use std::collections::{HashMap, HashSet};
 use std::net::Ipv6Addr;
 use std::num::NonZeroU32;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -704,6 +704,31 @@ fn load_json<T: for<'de> Deserialize<'de> + Default>(path: &std::path::Path) -> 
 }
 
 const MAX_LOG_BYTES: u64 = 20 * 1024 * 1024;
+const KEPT_LOG_BYTES: u64 = 5 * 1024 * 1024;
+const LOG_CHECK_EVERY: Duration = Duration::from_secs(600);
+
+/// Cuts the log back to its latest lines. The logger appends, so it carries on
+/// from the new end; a line written during the cut can be lost.
+fn trim_log(path: &Path) -> std::io::Result<()> {
+    use std::io::{Read, Seek, SeekFrom, Write};
+    let mut file = std::fs::OpenOptions::new().read(true).append(true).open(path)?;
+    if file.metadata()?.len() <= MAX_LOG_BYTES {
+        return Ok(());
+    }
+    file.seek(SeekFrom::End(-(KEPT_LOG_BYTES as i64)))?;
+    let mut tail = Vec::new();
+    file.read_to_end(&mut tail)?;
+    file.set_len(0)?;
+    file.write_all(&tail)
+}
+
+async fn log_trim_loop(path: PathBuf) {
+    loop {
+        tokio::time::sleep(LOG_CHECK_EVERY).await;
+        let path = path.clone();
+        let _ = tokio::task::spawn_blocking(move || trim_log(&path)).await;
+    }
+}
 
 /// Apps started from Finder get a soft limit of 256 open files, which a session
 /// of multi-file torrents exceeds at startup: peers fail, and so can a torrent's
@@ -887,6 +912,7 @@ pub fn run() {
             app.manage(shared.clone());
 
             // Background workers.
+            tauri::async_runtime::spawn(log_trim_loop(log_file));
             tauri::async_runtime::spawn(scheduler_loop(shared.clone()));
             tauri::async_runtime::spawn(upload_accounting_loop(shared.clone()));
             if upnp_enabled {
@@ -975,4 +1001,33 @@ pub fn run() {
             tauri::RunEvent::Opened { urls } => handler::open(app, urls),
             _ => {}
         });
+}
+
+#[cfg(test)]
+mod log_tests {
+    use super::*;
+
+    #[test]
+    fn trim_keeps_the_latest_bytes_and_later_appends() {
+        let path = std::env::temp_dir().join(format!("kd-log-{}", std::process::id()));
+        std::fs::write(&path, vec![b'x'; MAX_LOG_BYTES as usize + 1]).unwrap();
+        let mut logger = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        trim_log(&path).unwrap();
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), KEPT_LOG_BYTES);
+        std::io::Write::write_all(&mut logger, b"after").unwrap();
+        let log = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(log.len() as u64, KEPT_LOG_BYTES + 5);
+        assert!(log.ends_with(b"after"));
+    }
+
+    #[test]
+    fn trim_leaves_a_small_log_alone() {
+        let path = std::env::temp_dir().join(format!("kd-log-small-{}", std::process::id()));
+        std::fs::write(&path, b"short").unwrap();
+        trim_log(&path).unwrap();
+        let log = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(log, b"short");
+    }
 }
