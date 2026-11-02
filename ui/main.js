@@ -311,8 +311,8 @@ $("tbody").addEventListener("contextmenu", (e) => {
     { label: `✕ Remove ${ids.length} torrents (keep files)`, act: () => removeNow(ids, false) },
     { label: `🗑 Remove ${ids.length} torrents + move files to Trash`, danger: true, act: () => confirmTrash(ids) },
   ] : [
-    t.paused
-      ? { label: "▶ Resume", act: () => invoke("resume_torrent", { id }).then(refresh).catch(showError) }
+    t.paused || metrics(t).st.error
+      ? { label: metrics(t).st.error ? "▶ Resume (downloads what's missing)" : "▶ Resume", act: () => invoke("resume_torrent", { id }).then(refresh).catch(showError) }
       : { label: "⏸ Pause", act: () => invoke("pause_torrent", { id }).then(refresh).catch(showError) },
     { label: "📡 Force re-announce (reconnect peers)", act: () => invoke("reannounce", { id }).then(refresh).catch(showError) },
     { label: "📂 Open destination folder", act: () => t.output_folder && invoke("reveal_path", { path: t.output_folder }).catch(showError) },
