@@ -16,8 +16,10 @@ pub async fn watch_loop(shared: Shared) {
             continue;
         }
         let dir = PathBuf::from(dir);
-        let added = dir.join(".pulsar-added");
-        let failed = dir.join(".pulsar-failed");
+        let added = dir.join(".kdownloader-added");
+        let failed = dir.join(".kdownloader-failed");
+        crate::migrate::move_once(&dir.join(".pulsar-added"), &added);
+        crate::migrate::move_once(&dir.join(".pulsar-failed"), &failed);
         let entries = match std::fs::read_dir(&dir) {
             Ok(e) => e,
             Err(_) => continue,

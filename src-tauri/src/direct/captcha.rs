@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 
 /// The popup has no access to app commands: its only way to report links is to
 /// navigate here, which `on_navigation` intercepts and cancels.
-const REPORT_HOST: &str = "pulsar.invalid";
+const REPORT_HOST: &str = "kdownloader.invalid";
 
 /// Domains the popup may navigate to besides the protector: captcha providers.
 /// Anything else that takes over the page is an ad.
@@ -45,7 +45,7 @@ const REPORT_LINKS: &str = r#"(() => {
     const fresh = [...found].filter((u) => isHoster(u) && !sent.has(u));
     if (!fresh.length) return;
     fresh.forEach((u) => sent.add(u));
-    location.href = "https://pulsar.invalid/links#" + encodeURIComponent(fresh.join(" "));
+    location.href = "https://kdownloader.invalid/links#" + encodeURIComponent(fresh.join(" "));
   };
   let timer;
   const later = () => { clearTimeout(timer); timer = setTimeout(scan, 500); };
@@ -61,7 +61,7 @@ const CATCH_CLICK_N_LOAD: &str = r#"(() => {
   const isCnl = (u) => /^https?:\/\/(127\.0\.0\.1|localhost):9666\//i.test(String(u || ""));
   const report = (url, body) => {
     const path = new URL(url).pathname;
-    location.href = `https://pulsar.invalid/cnl${path}#${encodeURIComponent(String(body))}`;
+    location.href = `https://kdownloader.invalid/cnl${path}#${encodeURIComponent(String(body))}`;
   };
   const fromForm = (form) => {
     const action = form.getAttribute("action") || "";
@@ -103,9 +103,9 @@ const CATCH_CLICK_N_LOAD: &str = r#"(() => {
   };
   const open = XMLHttpRequest.prototype.open;
   const send = XMLHttpRequest.prototype.send;
-  XMLHttpRequest.prototype.open = function (method, url) { this.pulsarUrl = url; return open.apply(this, arguments); };
+  XMLHttpRequest.prototype.open = function (method, url) { this.kdownloaderUrl = url; return open.apply(this, arguments); };
   XMLHttpRequest.prototype.send = function (body) {
-    if (isCnl(this.pulsarUrl)) report(this.pulsarUrl, body); else return send.apply(this, arguments);
+    if (isCnl(this.kdownloaderUrl)) report(this.kdownloaderUrl, body); else return send.apply(this, arguments);
   };
 })();"#;
 
