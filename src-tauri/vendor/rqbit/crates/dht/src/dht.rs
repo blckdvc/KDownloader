@@ -1183,7 +1183,15 @@ impl DhtWorker {
         let reader = async {
             let mut buf = vec![0u8; 16384];
             loop {
-                let (size, addr) = socket.recv_from(&mut buf).await.map_err(Error::Recv)?;
+                // A failed receive is transient (network change, ICMP): the socket lives on.
+                let (size, addr) = match socket.recv_from(&mut buf).await {
+                    Ok(received) => received,
+                    Err(e) => {
+                        debug!("error receiving: {e:#}");
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        continue;
+                    }
+                };
                 match bprotocol::deserialize_message::<ByteBufOwned>(&buf[..size]) {
                     Ok(msg) => match output_tx.send((msg, addr)).await {
                         Ok(_) => {}

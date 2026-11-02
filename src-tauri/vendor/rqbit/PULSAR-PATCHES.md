@@ -10,5 +10,6 @@ Pulsar's patches, to reapply on any update:
 - `librqbit`: `StatsSnapshot::connected_seeds` counts live peers holding every piece.
 
 - `tracker_comms`: log spans show the tracker host only, as private trackers keep a passkey in the URL.
+- `dht`: a failed UDP receive is logged and retried instead of ending the DHT for the whole session.
 
 `desktop/src-tauri` is removed from the workspace members in `Cargo.toml`.
