@@ -68,17 +68,16 @@ pub fn update(idle: bool, down: &str, up: &str) {
 
     let size = NSSize::new(128.0, 128.0);
     let image = NSImage::initWithSize(NSImage::alloc(), size);
-    let full = NSRect::new(NSPoint::new(0.0, 0.0), size);
 
     // The replacement draws in a callback, which is a rewrite of this function for no
     // gain: the dock tile has a fixed size.
     #[allow(deprecated)]
     image.lockFocus();
     unsafe {
-        // Base app icon.
+        // The app icon shrinks to the top so the speeds leave the sphere clear.
         if let Some(icon) = NSImage::imageNamed(NSImageNameApplicationIcon) {
             icon.drawInRect_fromRect_operation_fraction(
-                full,
+                NSRect::new(NSPoint::new(20.0, 40.0), NSSize::new(88.0, 88.0)),
                 NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0)),
                 NSCompositingOperation::SourceOver,
                 1.0,
@@ -86,7 +85,7 @@ pub fn update(idle: bool, down: &str, up: &str) {
         }
 
         // Shared font; white numbers with qBittorrent-style colored arrows.
-        let font = NSFont::boldSystemFontOfSize(20.0);
+        let font = NSFont::boldSystemFontOfSize(17.0);
         let kf: &NSString = NSFontAttributeName;
         let kc: &NSString = NSForegroundColorAttributeName;
         let vf: &AnyObject = &font;
@@ -122,12 +121,12 @@ pub fn update(idle: bool, down: &str, up: &str) {
 
         // Translucent rounded capsule hugging the text (soft corners + alpha).
         let pad_x = 12.0;
-        let pad_y = 5.0;
-        let line_gap = 2.0;
-        let pill_w = (text_w + pad_x * 2.0).min(126.0);
+        let pad_y = 3.0;
+        let line_gap = 0.0;
+        let pill_w = (text_w + pad_x * 2.0).min(104.0);
         let pill_h = line_h * 2.0 + line_gap + pad_y * 2.0;
-        let pill_x = ((128.0 - pill_w) / 2.0).max(1.0);
-        let pill_y = 8.0;
+        let pill_x = (128.0 - pill_w) / 2.0;
+        let pill_y = 12.0;
         let pill = NSRect::new(NSPoint::new(pill_x, pill_y), NSSize::new(pill_w, pill_h));
         let radius = pill_h / 2.0;
         let path =
