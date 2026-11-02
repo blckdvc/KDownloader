@@ -2,7 +2,18 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>Magnet link</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>magnet</string>
+            </array>
+        </dict>
+    </array>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>Pulsar uses your local network to find your router and open the BitTorrent port (UPnP) so other peers can connect to you.</string>
+    <string>KDownloader uses your local network to find your router and open the BitTorrent port (UPnP) so other peers can connect to you.</string>
 </dict>
 </plist>

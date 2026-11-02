@@ -1,6 +1,6 @@
 name: Release
 
-# Build Pulsar on macOS and publish a draft GitHub Release with the .dmg/.app
+# Build KDownloader on macOS and publish a draft GitHub Release with the .dmg/.app
 # and the local-signing helper script attached. Trigger by pushing a version
 # tag (e.g. `git tag v0.1.0 && git push origin v0.1.0`) or run it manually.
 on:
@@ -32,15 +32,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "Pulsar ${{ github.ref_name }}"
+          releaseName: "KDownloader ${{ github.ref_name }}"
           releaseBody: |
             ### Install on macOS
-            1. Mount the `.dmg` and drag **Pulsar** to Applications.
-            2. Download `pulsar-macos-sign.command` (attached below) and run it once:
-               `./pulsar-macos-sign.command`
+            1. Mount the `.dmg` and drag **KDownloader** to Applications.
+            2. Download `kdownloader-macos-sign.command` (attached below) and run it once:
+               `./kdownloader-macos-sign.command`
                This locally signs the app so macOS lets it use the local network
                (needed for automatic UPnP port-forwarding). See the README for why.
-            3. Launch Pulsar, then allow it under
+            3. Launch KDownloader, then allow it under
                System Settings → Privacy & Security → Local Network.
           releaseDraft: true
           prerelease: false
@@ -50,4 +50,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "${{ github.ref_name }}" \
-            scripts/pulsar-macos-sign.command --clobber
+            scripts/kdownloader-macos-sign.command --clobber

@@ -3,13 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Pulsar</title>
+    <title>KDownloader</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header class="toolbar">
-      <div class="brand">
-        <svg class="logo" viewBox="0 0 24 24" aria-hidden="true">
+    <div class="titlebar" data-tauri-drag-region>KDownloader</div>
+    <nav class="app-tabs">
+      <button type="button" id="about-open" class="brand" title="About KDownloader">
+        <svg class="logo" viewBox="2.5 2.5 19 19" aria-hidden="true">
           <defs>
             <radialGradient id="lg-orb" cx="40%" cy="36%" r="72%">
               <stop offset="0" stop-color="#f4f9ff"/><stop offset=".35" stop-color="#bcd9ff"/>
@@ -24,8 +25,17 @@
           <ellipse cx="12" cy="12" rx="12" ry="1.8" fill="url(#lg-beam)" transform="rotate(-38 12 12)"/>
           <circle cx="12" cy="12" r="5.5" fill="url(#lg-orb)"/>
         </svg>
-        <h1>Pulsar</h1>
-      </div>
+              </button>
+      <button type="button" id="app-tab-torrent" class="app-tab active">Torrent</button>
+      <button type="button" id="app-tab-direct" class="app-tab">Direct Download <span id="app-grab-count" class="app-badge" hidden></span></button>
+      <button type="button" id="bw-mini" class="bw-mini" title="Open Bandwidth">
+        <svg id="bw-mini-chart" width="124" height="28" aria-hidden="true"></svg>
+        <span id="bw-mini-text">↓ 0 B/s&nbsp;&nbsp;↑ 0 B/s</span>
+      </button>
+    </nav>
+
+    <div id="view-torrent" class="view">
+    <header class="toolbar">
       <form id="add-form" class="add">
         <input id="magnet" type="text" placeholder="Paste a magnet link or http(s) .torrent URL…" autocomplete="off" spellcheck="false" />
         <button type="submit" class="primary">Add</button>
@@ -73,7 +83,7 @@
         <div class="table-wrap">
           <table class="ttable">
             <colgroup>
-              <col data-col="name" /><col data-col="size" /><col data-col="progress" /><col data-col="status" /><col data-col="peers" /><col data-col="swarm" /><col data-col="down" /><col data-col="up" /><col data-col="eta" /><col data-col="ratio" />
+              <col data-col="name" /><col data-col="size" /><col data-col="progress" /><col data-col="status" /><col data-col="seeds" /><col data-col="peers" /><col data-col="down" /><col data-col="up" /><col data-col="eta" /><col data-col="ratio" />
             </colgroup>
             <thead>
               <tr>
@@ -81,8 +91,8 @@
                 <th data-sort="size" class="num">Size</th>
                 <th data-sort="progress">Progress</th>
                 <th data-sort="status">Status</th>
-                <th data-sort="peers" class="num" title="Connected peers">Peers</th>
-                <th data-sort="swarm" class="num" title="Peers seen in swarm (DHT + trackers)">Swarm</th>
+                <th data-sort="seeds" class="num" title="Connected seeds (seeds in the swarm, from trackers)">Seeds</th>
+                <th data-sort="peers" class="num" title="Connected peers (peers in the swarm, from trackers)">Peers</th>
                 <th data-sort="down" class="num">↓ Speed</th>
                 <th data-sort="up" class="num">↑ Speed</th>
                 <th data-sort="eta" class="num">ETA</th>
@@ -116,6 +126,195 @@
       <button id="reveal" class="link" title="Reveal download folder in Finder">Download folder</button>
     </footer>
 
+    </div>
+
+    <div id="view-direct" class="view" hidden>
+    <header class="toolbar">
+      <form id="dd-add-form" class="add">
+        <input id="dd-links" type="text" placeholder="Paste hoster or direct links, or a page that lists files…" autocomplete="off" spellcheck="false" />
+        <button id="dd-add" type="submit" class="primary">Add</button>
+      </form>
+      <div class="tb-actions">
+        <button id="dd-tb-resume" class="ghost icon" title="Resume selected" disabled>▶</button>
+        <button id="dd-tb-pause" class="ghost icon" title="Pause selected" disabled>⏸</button>
+        <button id="dd-tb-remove" class="ghost icon" title="Remove selected" disabled>✕</button>
+        <button type="button" id="dd-opts-toggle" class="ghost" title="Add options">Options ▾</button>
+        <button type="button" id="dd-settings-btn" class="ghost icon" title="Settings">⚙</button>
+      </div>
+    </header>
+
+    <section id="dd-opts" class="opts" hidden>
+      <label>Save to
+        <span class="withbtn"><input id="dd-o-savepath" type="text" placeholder="(default folder)" />
+        <button type="button" class="ghost browse" data-target="dd-o-savepath">Browse…</button></span>
+      </label>
+      <label>Connections per file <input id="dd-o-connections" type="number" min="1" max="16" /></label>
+      <label>Simultaneous downloads <input id="dd-o-active" type="number" min="1" max="20" /></label>
+      <label class="chk"><input id="dd-o-paused" type="checkbox" /> Start paused</label>
+      <label class="chk"><input id="dd-o-noextract" type="checkbox" /> Don't extract</label>
+    </section>
+
+    <div id="dd-error" class="error" hidden></div>
+
+    <div class="body">
+      <aside class="sidebar">
+        <div class="side-group">
+          <div class="side-title">Status</div>
+          <ul id="dd-status-filters" class="side-list"></ul>
+        </div>
+        <div class="side-group">
+          <div class="side-title">Review</div>
+          <ul id="dd-grab-filter" class="side-list"></ul>
+        </div>
+        <div class="side-group">
+          <div class="side-title">Packages</div>
+          <ul id="dd-package-filters" class="side-list"></ul>
+        </div>
+      </aside>
+
+      <main class="main">
+        <div id="dd-queue-view" class="table-wrap">
+          <table class="ttable">
+            <colgroup>
+              <col /><col data-dd-col="size" /><col data-dd-col="progress" /><col data-dd-col="status" /><col data-dd-col="speed" /><col data-dd-col="eta" /><col data-dd-col="conns" /><col data-dd-col="service" /><col data-dd-col="package" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th data-dd-sort="name" class="col-name">Name</th>
+                <th data-dd-sort="size" class="num">Size</th>
+                <th data-dd-sort="progress">Progress</th>
+                <th data-dd-sort="status">Status</th>
+                <th data-dd-sort="speed" class="num">↓ Speed</th>
+                <th data-dd-sort="eta" class="num">ETA</th>
+                <th data-dd-sort="conns" class="num" title="Connections">Conn</th>
+                <th data-dd-sort="service">Service</th>
+                <th data-dd-sort="package">Package</th>
+              </tr>
+            </thead>
+            <tbody id="dd-tbody"></tbody>
+          </table>
+          <div id="dd-empty" class="empty"><p>No downloads.</p><p class="muted">Paste links above, or copy one anywhere.</p></div>
+        </div>
+
+        <div id="dd-grabber-view" class="dd-grabber" hidden>
+          <div class="opts">
+            <button id="dd-add-selected" type="button" class="primary" disabled>Add selected</button>
+            <button id="dd-clear-grabbed" type="button" class="ghost">Clear</button>
+          </div>
+          <div class="table-wrap">
+            <table class="ttable">
+              <colgroup><col class="dd-c-check" /><col /><col class="dd-c-size" /><col class="dd-c-package" /><col class="dd-c-state" /></colgroup>
+              <thead><tr><th></th><th class="col-name">Name</th><th class="num">Size</th><th>Package</th><th>Status</th></tr></thead>
+              <tbody id="dd-grabbed"></tbody>
+            </table>
+            <div id="dd-grab-empty" class="empty"><p>Nothing to review.</p><p class="muted">Links you copy appear here before they start.</p></div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <footer class="statusbar">
+      <span id="dd-count">0 downloads</span>
+      <span class="spacer"></span>
+      <button id="dd-start-all" class="link" title="Resume everything paused or failed">Start all</button>
+      <button id="dd-pause-all" class="link">Pause all</button>
+      <button id="dd-clear-done" class="link" title="Forget completed downloads, keeping their files">Clear completed</button>
+      <span id="dd-limits-badge" class="muted"></span>
+      <span id="dd-totals">↓ 0 B/s</span>
+      <button id="dd-reveal" class="link" title="Reveal download folder in Finder">Download folder</button>
+    </footer>
+    </div>
+
+    <div id="view-bandwidth" class="view" hidden>
+      <div class="bw-head">
+        <h2>Bandwidth</h2>
+        <div class="bw-ranges" role="group" aria-label="Time range">
+          <button type="button" data-range="60" class="ghost active">1 min</button>
+          <button type="button" data-range="300" class="ghost">5 min</button>
+          <button type="button" data-range="1800" class="ghost">30 min</button>
+        </div>
+      </div>
+      <div class="bw-plot">
+        <svg id="bw-chart" role="img" aria-label="Transfer speeds over time"></svg>
+        <div id="bw-tip" class="bw-tip" hidden></div>
+        <p id="bw-waiting" class="muted bw-waiting">Collecting the first samples…</p>
+      </div>
+      <table class="bw-table">
+        <thead><tr><th>Series</th><th class="num">Now</th><th class="num">Peak</th><th class="num">Average</th></tr></thead>
+        <tbody id="bw-summary"></tbody>
+      </table>
+    </div>
+
+    <div id="about-modal" class="overlay" hidden>
+      <div class="sheet small about">
+        <div class="sheet-body">
+          <div id="about-logo"></div>
+          <h2 id="about-title">KDownloader</h2>
+          <p>BitTorrent client and download manager: torrents, premium accounts, captcha window, archive extraction and bandwidth history (librqbit engine).</p>
+          <p>by blckdvc</p>
+          <p>Free &amp; open-source — if you feel like it, buy me a few tokens:</p>
+          <button type="button" id="about-donate" class="about-donate" title="paypal.me/lbenh"><img src="buy-me-tokens.png" alt="Buy me tokens" /></button>
+          <p class="muted about-credits">Includes librqbit, Tauri and UnRAR (© Alexander Roshal), under their own licenses.</p>
+        </div>
+        <div class="sheet-foot"><button id="about-close" class="primary">OK</button></div>
+      </div>
+    </div>
+
+    <!-- Direct Download settings -->
+    <div id="dd-modal" class="overlay" hidden>
+      <div class="sheet">
+        <div class="sheet-head"><h2>Direct Download settings</h2><button id="dd-modal-close" class="ghost icon">✕</button></div>
+        <div class="sheet-body">
+          <section class="group">
+            <h3>Downloads</h3>
+            <label>Download folder
+              <span class="withbtn"><input id="dd-s-dir" type="text" />
+              <button type="button" class="ghost browse" data-target="dd-s-dir">Browse…</button></span>
+            </label>
+            <div class="grid2 dd-grid">
+              <label>Simultaneous downloads <input id="dd-s-active" type="number" min="1" max="20" /></label>
+              <label>Connections per file <input id="dd-s-chunks" type="number" min="1" max="16" /></label>
+              <label>Speed limit (KiB/s, 0 = unlimited) <input id="dd-s-limit" type="number" min="0" /></label>
+            </div>
+          </section>
+          <section class="group">
+            <h3>Behaviour</h3>
+            <label class="chk"><input id="dd-s-extract" type="checkbox" /> Extract archives when finished</label>
+            <label class="chk"><input id="dd-s-delete" type="checkbox" /> Delete archive after extraction</label>
+            <label class="chk"><input id="dd-s-clipboard" type="checkbox" /> Watch the clipboard for links</label>
+            <label class="chk"><input id="dd-s-autostart" type="checkbox" /> Start copied links automatically</label>
+            <label class="dd-removal">When removing items
+              <select id="dd-s-removal">
+                <option value="">Always ask</option>
+                <option value="keep">Keep the files</option>
+                <option value="trash">Move the files to Trash</option>
+              </select>
+            </label>
+          </section>
+          <section class="group">
+            <h3>Premium accounts</h3>
+            <p class="muted dd-hint">Keys are stored in the macOS Keychain. Only links from hosts your account supports are sent to the service.</p>
+            <div id="dd-accounts" class="dd-providers"></div>
+            <div id="dd-account-detail" class="dd-account-detail" hidden></div>
+          </section>
+        </div>
+        <div class="sheet-foot"><button id="dd-modal-cancel" class="ghost">Cancel</button><button id="dd-modal-save" class="primary">Save</button></div>
+      </div>
+    </div>
+
+    <div id="dd-rm-modal" class="overlay" hidden>
+      <div class="sheet small">
+        <div class="sheet-head"><h2>Remove download</h2></div>
+        <div class="sheet-body"><p id="dd-rm-name" class="muted"></p>
+          <label class="rm-remember"><input id="dd-rm-remember" type="checkbox" /> Remember my choice</label></div>
+        <div class="sheet-foot">
+          <button id="dd-rm-cancel" class="ghost">Cancel</button>
+          <button id="dd-rm-keep">Remove, keep files</button>
+          <button id="dd-rm-del" class="danger">Remove + move files to Trash</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Settings modal -->
     <div id="modal" class="overlay" hidden>
       <div class="sheet">
@@ -145,6 +344,10 @@
             </div>
           </section>
           <section class="group">
+            <h3>Links</h3>
+            <button type="button" id="make-default" class="ghost">Open magnet links and .torrent files with KDownloader</button>
+          </section>
+          <section class="group">
             <h3>Network</h3>
             <div class="grid2">
               <label>Incoming port <input id="s-port" type="number" min="1" max="65535" class="narrow" /></label>
@@ -152,7 +355,7 @@
             </div>
             <label class="chk"><input id="s-utp" type="checkbox" /> Enable µTP (UDP peers) — advanced</label>
             <label>Bind to interface <input id="s-bind" type="text" placeholder="(auto) — e.g. en0" class="narrow" /></label>
-            <p class="hint">Needed to seed: peers connect to you on this port. Takes effect after you restart Pulsar. If your router blocks UPnP, forward this port (TCP&nbsp;+&nbsp;UDP) to this Mac. µTP adds UDP peers but may lose packets at high speed on macOS. <b>Bind to interface</b>: if you run a VPN/Private Relay (many <code>utun</code> interfaces), UPnP discovery can fail — set your LAN interface (e.g. <code>en0</code>) to force it through your router.</p>
+            <p class="hint">Needed to seed: peers connect to you on this port. Takes effect after you restart KDownloader. If your router blocks UPnP, forward this port (TCP&nbsp;+&nbsp;UDP) to this Mac. µTP adds UDP peers but may lose packets at high speed on macOS. <b>Bind to interface</b>: if you run a VPN/Private Relay (many <code>utun</code> interfaces), UPnP discovery can fail — set your LAN interface (e.g. <code>en0</code>) to force it through your router.</p>
           </section>
           <section class="group">
             <h3><label class="chk"><input id="s-sched" type="checkbox" /> Scheduler — alternate limits during a window</label></h3>
@@ -179,17 +382,21 @@
     <div id="rm-modal" class="overlay" hidden>
       <div class="sheet small">
         <div class="sheet-head"><h2>Remove torrent</h2></div>
-        <div class="sheet-body"><p id="rm-name" class="muted"></p></div>
+        <div class="sheet-body"><p id="rm-name" class="muted"></p>
+          <label class="rm-remember"><input id="rm-remember" type="checkbox" /> Remember my choice</label></div>
         <div class="sheet-foot">
           <button id="rm-cancel" class="ghost">Cancel</button>
           <button id="rm-keep">Remove, keep files</button>
-          <button id="rm-del" class="danger">Remove + delete files</button>
+          <button id="rm-del" class="danger">Remove + move files to Trash</button>
         </div>
       </div>
     </div>
 
     <div id="ctxmenu" class="ctxmenu" hidden></div>
 
+    <script src="table.js"></script>
     <script src="main.js"></script>
+    <script src="direct.js"></script>
+    <script src="bandwidth.js"></script>
   </body>
 </html>

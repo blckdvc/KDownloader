@@ -6,6 +6,8 @@ const num = (id) => Math.max(0, parseInt($(id).value, 10) || 0);
 let torrents = [];
 let settingsCache = null;
 let selectedId = null;
+let selectedIds = new Set(); // every selected row; selectedId is the one the detail pane shows
+let anchorId = null;        // where a shift-click range starts
 let statusFilter = "all";
 let catFilter = "";     // "" = all; "\u0000none" = uncategorized
 let tagFilter = "";
@@ -61,13 +63,21 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<
 const toHHMM = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 const fromHHMM = (s) => { const [h, m] = (s || "0:0").split(":").map(Number); return (h || 0) * 60 + (m || 0); };
 
+// Each refresh brings new objects, so a result lasts exactly one refresh.
+const metricsCache = new WeakMap();
 function metrics(t) {
+  let m = metricsCache.get(t);
+  if (!m) { m = computeMetrics(t); metricsCache.set(t, m); }
+  return m;
+}
+function computeMetrics(t) {
   const st = t.stats || {}, live = st.live || null, snap = live ? live.snapshot : null, ps = snap ? snap.peer_stats : null;
   const total = Number(st.total_bytes || 0), done = Number(st.progress_bytes || 0), up = Number(st.uploaded_bytes || 0);
   const dl = t.paused || !live ? 0 : speedBps(live.download_speed);
   const ul = t.paused || !live ? 0 : speedBps(live.upload_speed);
   const pct = total > 0 ? Math.min(100, (done / total) * 100) : st.finished ? 100 : 0;
   const peers = ps ? ps.live || 0 : 0, swarm = ps ? ps.seen || 0 : 0;
+  const seeds = snap ? snap.connected_seeds || 0 : 0, leechers = Math.max(0, peers - seeds);
   const ratio = done > 0 ? up / done : up > 0 ? Infinity : 0;
   const etaSec = !t.paused && dl > 0 && total > done ? (total - done) / dl : st.finished ? -1 : Infinity;
   let kind = classify(t);
@@ -77,17 +87,13 @@ function metrics(t) {
   if ((kind === "downloading" || kind === "idle") && !t.paused && !st.finished && pct < 100 && peers === 0 && dl === 0) {
     kind = "stalled";
   }
-  return { st, live, snap, ps, total, done, up, dl, ul, pct, peers, swarm, ratio, etaSec, kind };
+  return { st, live, snap, ps, total, done, up, dl, ul, pct, peers, swarm, seeds, leechers, ratio, etaSec, kind };
 }
 
 // ---- add / options -------------------------------------------------------
 function addOpts() {
   return { category: val("o-category"), savePath: val("o-savepath") || null, paused: $("o-paused").checked, downKbps: num("o-down"), upKbps: num("o-up") };
 }
-$("opts-toggle").addEventListener("click", () => {
-  const o = $("opts"); o.hidden = !o.hidden;
-  $("opts-toggle").textContent = o.hidden ? "Options ▾" : "Options ▴";
-});
 $("add-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const source = $("magnet").value.trim(); if (!source) return;
@@ -127,11 +133,10 @@ function matchStatus(t, f) {
   }
 }
 function renderSidebar() {
-  const sc = $("status-filters");
-  sc.innerHTML = STATUSES.map(([k, label]) => {
+  setHtml($("status-filters"), STATUSES.map(([k, label]) => {
     const n = torrents.filter((t) => matchStatus(t, k)).length;
-    return `<li data-status="${k}" class="${statusFilter === k ? "active" : ""}"><span>${label}</span><span class="cnt">${n}</span></li>`;
-  }).join("");
+    return `<li data-status="${k}" tabindex="0" class="${statusFilter === k ? "active" : ""}"><span>${label}</span><span class="cnt">${n}</span></li>`;
+  }).join(""));
 
   const cats = {};
   for (const t of torrents) { const c = t.category || ""; cats[c] = (cats[c] || 0) + 1; }
@@ -139,7 +144,7 @@ function renderSidebar() {
   let catHtml = `<li data-cat="" class="${catFilter === "" ? "active" : ""}"><span>All</span><span class="cnt">${torrents.length}</span></li>`;
   if (cats[""]) catHtml += `<li data-cat="\u0000none" class="${catFilter === "\u0000none" ? "active" : ""}"><span>Uncategorized</span><span class="cnt">${cats[""]}</span></li>`;
   catHtml += catKeys.map((c) => `<li data-cat="${esc(c)}" class="${catFilter === c ? "active" : ""}"><span>${esc(c)}</span><span class="cnt">${cats[c]}</span></li>`).join("");
-  $("cat-filters").innerHTML = catHtml;
+  setHtml($("cat-filters"), catHtml);
 
   const tags = {};
   for (const t of torrents) for (const tg of t.tags || []) tags[tg] = (tags[tg] || 0) + 1;
@@ -147,7 +152,7 @@ function renderSidebar() {
   let tagHtml = `<li data-tag="" class="${tagFilter === "" ? "active" : ""}"><span>All</span><span class="cnt">${torrents.length}</span></li>`;
   tagHtml += tagKeys.length ? tagKeys.map((tg) => `<li data-tag="${esc(tg)}" class="${tagFilter === tg ? "active" : ""}"><span>${esc(tg)}</span><span class="cnt">${tags[tg]}</span></li>`).join("")
     : `<li class="empty-hint">no tags</li>`;
-  $("tag-filters").innerHTML = tagHtml;
+  setHtml($("tag-filters"), tagHtml);
 }
 $("status-filters").addEventListener("click", (e) => { const li = e.target.closest("li[data-status]"); if (li) { statusFilter = li.dataset.status; refresh(); } });
 $("cat-filters").addEventListener("click", (e) => { const li = e.target.closest("li[data-cat]"); if (li) { catFilter = li.dataset.cat; refresh(); } });
@@ -168,8 +173,8 @@ function sortVal(t, col) {
     case "size": return m.total;
     case "progress": return m.pct;
     case "status": return m.kind;
-    case "peers": return m.peers;
-    case "swarm": return m.swarm;
+    case "seeds": return t.tracker_seeds ?? m.seeds;
+    case "peers": return t.tracker_peers ?? m.leechers;
     case "down": return m.dl;
     case "up": return m.ul;
     case "eta": return m.etaSec;
@@ -177,34 +182,37 @@ function sortVal(t, col) {
     default: return 0;
   }
 }
+// "connected (in the swarm)", as in qBittorrent; the total comes from trackers.
+const swarmCell = (connected, total) => (total == null ? `${connected}` : `${connected} (${total})`);
 function renderTable() {
   const rows = visibleTorrents().sort((a, b) => {
     const x = sortVal(a, sort.col), y = sortVal(b, sort.col);
     if (x < y) return -1 * sort.dir; if (x > y) return 1 * sort.dir; return 0;
   });
-  const tb = $("tbody");
-  tb.innerHTML = rows.map((t) => {
+  for (const id of selectedIds) if (!torrents.some((t) => t.id === id)) selectedIds.delete(id);
+  if (selectedId != null && !selectedIds.has(selectedId)) selectedId = [...selectedIds].pop() ?? null;
+  patchRows($("tbody"), rows.map((t) => {
     const m = metrics(t);
     const dl = m.dl > 0 ? `${bytes(m.dl)}/s` : "", ul = m.ul > 0 ? `${bytes(m.ul)}/s` : "";
     const eta = t.paused ? "" : etaText(t);
     const ratio = m.ratio === Infinity ? "∞" : m.ratio.toFixed(2);
     const cat = t.category ? `<span class="cat-tag">${esc(t.category)}</span>` : "";
-    return `<tr data-id="${t.id}" class="s-${m.kind} ${t.id === selectedId ? "selected" : ""}">
+    const cls = selectedIds.has(t.id) ? `s-${m.kind} selected` : `s-${m.kind}`;
+    return { id: t.id, cls, html: `
       <td class="col-name" title="${esc(t.name)}">${esc(t.name)}${cat}</td>
       <td class="num">${bytes(m.total)}</td>
       <td><span class="pbar"><span style="width:${m.pct}%"></span><em>${m.pct.toFixed(1)}%</em></span></td>
       <td><span class="st"${m.st.error ? ` title="${esc(m.st.error)}"` : ""}>${LABEL[m.kind] || m.kind}</span></td>
-      <td class="num">${m.peers}</td>
-      <td class="num">${m.swarm}</td>
+      <td class="num">${swarmCell(m.seeds, t.tracker_seeds)}</td>
+      <td class="num">${swarmCell(m.leechers, t.tracker_peers)}</td>
       <td class="num">${dl}</td>
       <td class="num">${ul}</td>
       <td class="num">${eta}</td>
-      <td class="num">${ratio}</td>
-    </tr>`;
-  }).join("");
+      <td class="num">${ratio}</td>` };
+  }));
   $("empty").style.display = torrents.length ? "none" : "flex";
   const n = rows.length;
-  $("count").textContent = `${n} torrent${n === 1 ? "" : "s"}${torrents.length !== n ? ` / ${torrents.length}` : ""}`;
+  setText($("count"), `${n} torrent${n === 1 ? "" : "s"}${torrents.length !== n ? ` / ${torrents.length}` : ""}`);
 
   // sort indicators
   document.querySelectorAll("thead th[data-sort]").forEach((th) => {
@@ -212,7 +220,7 @@ function renderTable() {
     th.classList.toggle("asc", th.dataset.sort === sort.col && sort.dir === 1);
   });
 }
-$("tbody").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-id]"); if (tr) selectTorrent(Number(tr.dataset.id)); });
+$("tbody").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-id]"); if (tr) pickRow(Number(tr.dataset.id), e); });
 $("tbody").addEventListener("dblclick", async (e) => {
   const tr = e.target.closest("tr[data-id]"); if (!tr) return;
   const t = torrents.find((x) => x.id === Number(tr.dataset.id));
@@ -227,94 +235,82 @@ document.querySelectorAll("thead th[data-sort]").forEach((th) => {
 });
 
 // ---- fixed + resizable columns -------------------------------------------
-const COLW_KEY = "pulsar-colw";
-const COLW_DEFAULT = { size: 80, progress: 150, status: 115, peers: 64, swarm: 72, down: 92, up: 92, eta: 80, ratio: 72 };
-let colw = { ...COLW_DEFAULT };
-try { colw = { ...COLW_DEFAULT, ...(JSON.parse(localStorage.getItem(COLW_KEY) || "{}")) }; } catch (e) {}
-const colEl = (k) => document.querySelector(`col[data-col="${k}"]`);
-function applyColWidths() { for (const k in COLW_DEFAULT) { const c = colEl(k); if (c) c.style.width = (colw[k] || COLW_DEFAULT[k]) + "px"; } }
-applyColWidths();
-document.querySelectorAll("thead th[data-sort]").forEach((th) => {
-  const key = th.dataset.sort;
-  if (!(key in COLW_DEFAULT)) return;          // Name column flexes to fill
-  const h = document.createElement("div");
-  h.className = "col-resize";
-  h.title = "Drag to resize";
-  th.appendChild(h);
-  h.addEventListener("click", (e) => e.stopPropagation());   // don't trigger sort
-  h.addEventListener("pointerdown", (e) => {
-    e.preventDefault(); e.stopPropagation();
-    const startX = e.clientX, startW = colEl(key).getBoundingClientRect().width;
-    h.classList.add("drag");
-    try { h.setPointerCapture(e.pointerId); } catch (e) {}
-    const move = (ev) => { colw[key] = Math.max(44, Math.round(startW + ev.clientX - startX)); colEl(key).style.width = colw[key] + "px"; };
-    const up = () => {
-      h.classList.remove("drag");
-      document.removeEventListener("pointermove", move);
-      document.removeEventListener("pointerup", up);
-      try { localStorage.setItem(COLW_KEY, JSON.stringify(colw)); } catch (e) {}
-    };
-    document.addEventListener("pointermove", move);
-    document.addEventListener("pointerup", up);
-  });
-  // double-click a handle resets that column to its default width
-  h.addEventListener("dblclick", (e) => {
-    e.stopPropagation();
-    colw[key] = COLW_DEFAULT[key]; colEl(key).style.width = colw[key] + "px";
-    try { localStorage.setItem(COLW_KEY, JSON.stringify(colw)); } catch (e) {}
-  });
+resizableColumns({
+  storageKey: "pulsar-colw",
+  defaults: { size: 80, progress: 150, status: 115, seeds: 84, peers: 84, down: 92, up: 92, eta: 80, ratio: 72 },
+  table: document.querySelector("#view-torrent .ttable"),
+  headers: document.querySelectorAll("#view-torrent thead th[data-sort]"),
+  headerKey: (th) => th.dataset.sort,
+  column: (key) => document.querySelector(`col[data-col="${key}"]`),
+  minName: 240,
 });
 
 // ---- toolbar actions -----------------------------------------------------
 function syncToolbar() {
-  const t = torrents.find((x) => x.id === selectedId);
-  $("tb-resume").disabled = !t || !t.paused;
-  $("tb-pause").disabled = !t || t.paused;
-  $("tb-remove").disabled = !t;
+  const picked = torrents.filter((x) => selectedIds.has(x.id));
+  $("tb-resume").disabled = !picked.some((t) => t.paused);
+  $("tb-pause").disabled = !picked.some((t) => !t.paused);
+  $("tb-remove").disabled = !picked.length;
 }
-$("tb-resume").addEventListener("click", async () => { if (selectedId == null) return; try { await invoke("resume_torrent", { id: selectedId }); await refresh(); } catch (e) { showError(e); } });
-$("tb-pause").addEventListener("click", async () => { if (selectedId == null) return; try { await invoke("pause_torrent", { id: selectedId }); await refresh(); } catch (e) { showError(e); } });
+async function forSelected(command, ids = [...selectedIds]) {
+  try { await Promise.all(ids.map((id) => invoke(command, { id }))); await refresh(); } catch (e) { showError(e); }
+}
+$("tb-resume").addEventListener("click", () => forSelected("resume_torrent", torrents.filter((t) => selectedIds.has(t.id) && t.paused).map((t) => t.id)));
+$("tb-pause").addEventListener("click", () => forSelected("pause_torrent", torrents.filter((t) => selectedIds.has(t.id) && !t.paused).map((t) => t.id)));
 
 let rmTarget = null;
-function openRemoveModal(id) {
-  const t = torrents.find((x) => x.id === id); if (!t) return;
-  rmTarget = id; $("rm-name").textContent = t.name || `torrent ${id}`; $("rm-modal").hidden = false;
+function openRemoveModal(ids = [...selectedIds]) {
+  const picked = torrents.filter((x) => ids.includes(x.id)); if (!picked.length) return;
+  const saved = rememberedRemoval();
+  if (saved) { removeNow(picked.map((t) => t.id), saved === "trash"); return; }
+  setTimeout(() => $("rm-cancel").focus());
+  rmTarget = picked.map((t) => t.id);
+  $("rm-name").textContent = picked.length === 1 ? picked[0].name || `torrent ${picked[0].id}` : `${picked.length} torrents selected`;
+  $("rm-modal").hidden = false;
 }
-async function removeNow(id, del) {
+async function removeNow(ids, del) {
   try {
-    await invoke("remove_torrent", { id, deleteFiles: del });
-    if (selectedId === id) { selectedId = null; $("detail").hidden = true; }
+    await Promise.all(ids.map((id) => invoke("remove_torrent", { id, deleteFiles: del })));
+    for (const id of ids) selectedIds.delete(id);
+    if (!selectedIds.size) { selectedId = null; $("detail").hidden = true; }
     await refresh();
   } catch (e) { showError(e); }
 }
-$("tb-remove").addEventListener("click", () => openRemoveModal(selectedId));
+$("tb-remove").addEventListener("click", () => openRemoveModal());
+// The menu entry already says what happens, so only a first-time user is asked.
+function confirmTrash(ids) {
+  if (rememberedRemoval()) removeNow(ids, true);
+  else openRemoveModal(ids);
+}
 async function doRemove(del) {
   $("rm-modal").hidden = true; if (rmTarget == null) return;
-  try { await invoke("remove_torrent", { id: rmTarget, deleteFiles: del }); if (selectedId === rmTarget) { selectedId = null; $("detail").hidden = true; } await refresh(); }
-  catch (e) { showError(e); } finally { rmTarget = null; }
+  if ($("rm-remember").checked) setRememberedRemoval(del ? "trash" : "keep");
+  $("rm-remember").checked = false;
+  const ids = rmTarget; rmTarget = null;
+  await removeNow(ids, del);
 }
 $("rm-cancel").addEventListener("click", () => ($("rm-modal").hidden = true));
 $("rm-keep").addEventListener("click", () => doRemove(false));
 $("rm-del").addEventListener("click", () => doRemove(true));
 
 // ---- right-click context menu -------------------------------------------
-const ctx = $("ctxmenu");
-let ctxShownAt = 0;
-function hideCtx(force) {
-  // ignore the trailing click of the very gesture that opened the menu
-  if (!force && performance.now() - ctxShownAt < 250) return;
-  if (ctx && !ctx.hidden) { ctx.hidden = true; ctx.innerHTML = ""; }
-}
-document.addEventListener("click", () => hideCtx());
-window.addEventListener("blur", () => hideCtx(true));
 $("tbody").addEventListener("scroll", () => hideCtx(true), true);
 
 $("tbody").addEventListener("contextmenu", (e) => {
   const tr = e.target.closest("tr[data-id]"); if (!tr) return;
   e.preventDefault();
-  const id = Number(tr.dataset.id); selectTorrent(id);
+  const id = Number(tr.dataset.id);
+  if (!selectedIds.has(id)) selectTorrent(id);
   const t = torrents.find((x) => x.id === id); if (!t) return;
-  const items = [
+  const ids = [...selectedIds];
+  const items = ids.length > 1 ? [
+    { label: `▶ Resume ${ids.length} torrents`, act: () => forSelected("resume_torrent", ids) },
+    { label: `⏸ Pause ${ids.length} torrents`, act: () => forSelected("pause_torrent", ids) },
+    { label: `📡 Force re-announce ${ids.length} torrents`, act: () => forSelected("reannounce", ids) },
+    { sep: true },
+    { label: `✕ Remove ${ids.length} torrents (keep files)`, act: () => removeNow(ids, false) },
+    { label: `🗑 Remove ${ids.length} torrents + move files to Trash`, danger: true, act: () => confirmTrash(ids) },
+  ] : [
     t.paused
       ? { label: "▶ Resume", act: () => invoke("resume_torrent", { id }).then(refresh).catch(showError) }
       : { label: "⏸ Pause", act: () => invoke("pause_torrent", { id }).then(refresh).catch(showError) },
@@ -324,22 +320,10 @@ $("tbody").addEventListener("contextmenu", (e) => {
     { sep: true },
     { label: "📋 Copy info hash", act: () => { try { navigator.clipboard.writeText(t.info_hash || ""); } catch (_) {} } },
     { sep: true },
-    { label: "✕ Remove (keep files)", act: () => removeNow(id, false) },
-    { label: "🗑 Remove + delete files", danger: true, act: () => removeNow(id, true) },
+    { label: "✕ Remove (keep files)", act: () => removeNow([id], false) },
+    { label: "🗑 Remove + move files to Trash", danger: true, act: () => confirmTrash([id]) },
   ];
-  ctx.innerHTML = items
-    .map((it, i) => it.sep ? '<div class="ctx-sep"></div>' : `<div class="ctx-item${it.danger ? " danger" : ""}" data-i="${i}">${it.label}</div>`)
-    .join("");
-  ctx.hidden = false;
-  ctxShownAt = performance.now();
-  let x = e.clientX, y = e.clientY;
-  const mw = ctx.offsetWidth, mh = ctx.offsetHeight;
-  if (x + mw > window.innerWidth) x = window.innerWidth - mw - 6;
-  if (y + mh > window.innerHeight) y = window.innerHeight - mh - 6;
-  ctx.style.left = x + "px"; ctx.style.top = y + "px";
-  ctx.querySelectorAll(".ctx-item").forEach((el) => el.addEventListener("click", (ev) => {
-    ev.stopPropagation(); const it = items[Number(el.dataset.i)]; hideCtx(true); it.act && it.act();
-  }));
+  showContextMenu(e, items);
 });
 
 // ---- keyboard ------------------------------------------------------------
@@ -354,13 +338,16 @@ document.addEventListener("keydown", (e) => {
   }
   const tag = (e.target.tagName || "").toLowerCase();
   if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;
-  if (!$("modal").hidden) return; // settings open
+  if (!$("modal").hidden) { if (e.key === "Escape") $("modal").hidden = true; return; } // settings open
+  if ($("view-torrent").hidden) return; // keys belong to the visible tab
 
-  if (e.key === "Delete" || e.key === "Backspace") {
-    if (selectedId == null) return;
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
     e.preventDefault();
-    if (e.shiftKey || e.metaKey) removeNow(selectedId, true); // fast path: remove + delete files
-    else openRemoveModal(selectedId);                          // safe path: choose
+    selectRows(rowOrder());
+  } else if (e.key === "Delete" || e.key === "Backspace") {
+    if (!selectedIds.size) return;
+    e.preventDefault();
+    openRemoveModal();
   } else if (e.key === "Escape") {
     hideCtx(); if (!$("detail").hidden) $("detail").hidden = true;
   } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -374,15 +361,29 @@ document.addEventListener("keydown", (e) => {
 });
 
 // ---- detail pane ---------------------------------------------------------
+function paintSelection() {
+  document.querySelectorAll("#tbody tr").forEach((tr) => tr.classList.toggle("selected", selectedIds.has(Number(tr.dataset.id))));
+  syncToolbar();
+}
 function selectTorrent(id) {
-  selectedId = id; contentFor = null;
+  selectedId = id; anchorId = id; selectedIds = new Set([id]); contentFor = null;
   $("detail").hidden = false;
-  document.querySelectorAll("#tbody tr").forEach((tr) => tr.classList.toggle("selected", Number(tr.dataset.id) === id));
-  syncToolbar(); loadTab();
+  paintSelection(); loadTab();
+}
+function selectRows(ids) {
+  selectedIds = new Set(ids); selectedId = ids[ids.length - 1] ?? null; contentFor = null;
+  paintSelection();
+  if (selectedId == null) $("detail").hidden = true; else loadTab();
+}
+function pickRow(id, e) {
+  const picked = nextSelection(selectedIds, rowOrder(), anchorId, id, e);
+  if (!picked) { selectTorrent(id); return; }
+  if (e.metaKey || e.ctrlKey) anchorId = id;
+  selectRows(picked);
 }
 $("detail-close").addEventListener("click", () => { $("detail").hidden = true; });
 document.querySelectorAll(".dtab").forEach((b) => b.addEventListener("click", () => {
-  detailTab = b.dataset.tab;
+  detailTab = b.dataset.tab; contentFor = null;
   document.querySelectorAll(".dtab").forEach((x) => x.classList.toggle("active", x === b));
   loadTab();
 }));
@@ -400,7 +401,7 @@ function renderGeneral() {
   const m = metrics(t);
   const ratio = m.ratio === Infinity ? "∞" : m.ratio.toFixed(3);
   const pieces = m.snap ? m.snap.downloaded_and_checked_pieces : 0;
-  $("detail-body").innerHTML = `<dl class="kv">
+  patchList($("detail-body"), `<dl class="kv">
     <dt>Name</dt><dd>${esc(t.name)}</dd>
     <dt>Status</dt><dd>${LABEL[m.kind] || m.kind}</dd>
     ${m.st.error ? `<dt>Error</dt><dd class="err-text">${esc(m.st.error)}</dd>` : ""}
@@ -415,7 +416,7 @@ function renderGeneral() {
     <dt>Tags</dt><dd>${(t.tags || []).map(esc).join(", ") || "—"}</dd>
     <dt>Save path</dt><dd>${esc(t.output_folder)}</dd>
     <dt>Info hash</dt><dd>${esc(t.info_hash)}</dd>
-  </dl>`;
+  </dl>`);
 }
 async function fetchTrackers() {
   const id = selectedId; $("detail-body").innerHTML = '<p class="muted">Loading…</p>';
@@ -487,8 +488,16 @@ function feedRow(feed = { url: "", category: "", save_path: "", rules: [] }) {
   el.querySelector(".f-browse").addEventListener("click", () => browseInto(el.querySelector(".f-save")));
   return el;
 }
+async function syncDefaultButton() {
+  const isDefault = await invoke("is_default_handler").catch(() => false);
+  $("make-default").disabled = isDefault;
+  $("make-default").textContent = isDefault ? "KDownloader opens magnet links and .torrent files" : "Open magnet links and .torrent files with KDownloader";
+}
+$("make-default").addEventListener("click", () => invoke("make_default_handler").then(syncDefaultButton).catch(showError));
+
 function openSettings() {
   const s = settingsCache || {};
+  syncDefaultButton();
   $("s-downloaddir").value = s.download_dir || "";
   $("s-gdown").value = s.global_down_kbps ?? 0; $("s-gup").value = s.global_up_kbps ?? 0;
   $("s-sched").checked = !!s.scheduler_enabled; $("s-from").value = toHHMM(s.sched_from_min ?? 480); $("s-to").value = toHHMM(s.sched_to_min ?? 1080);
@@ -516,7 +525,7 @@ async function saveSettings() {
   const portChanged = settingsCache && (settings.listen_port !== settingsCache.listen_port || settings.upnp_enabled !== settingsCache.upnp_enabled || settings.utp_enabled !== settingsCache.utp_enabled || settings.bind_device !== settingsCache.bind_device);
   try {
     await invoke("save_settings", { settings }); settingsCache = settings; updateLimitsBadge(); updateDirLabel(); $("modal").hidden = true;
-    if (portChanged) showNotice("Network settings saved — restart Pulsar for the new port/UPnP to take effect.");
+    if (portChanged) showNotice("Network settings saved — restart KDownloader for the new port/UPnP to take effect.");
   }
   catch (e) { showError(e); }
 }
@@ -544,19 +553,42 @@ $("reveal").addEventListener("click", async () => {
 });
 
 // ---- poll loop -----------------------------------------------------------
+let refreshing = false;
 async function refresh() {
-  try { torrents = await invoke("list_torrents"); } catch (e) { showError(e); return; }
+  if (refreshing) return;
+  refreshing = true;
+  try { torrents = await invoke("list_torrents"); } catch (e) { showError(e); return; } finally { refreshing = false; }
+  // The Bandwidth tab reads `torrents`, so only the drawing is skipped when hidden.
+  if ($("view-torrent").hidden) return;
   if (selectedId != null && !torrents.some((t) => t.id === selectedId)) { selectedId = null; $("detail").hidden = true; }
   renderSidebar(); renderTable(); syncToolbar();
   let td = 0, tu = 0;
   for (const t of torrents) { const m = metrics(t); td += m.dl; tu += m.ul; }
-  $("totals").innerHTML = `↓ ${bytes(td)}/s&nbsp;&nbsp;↑ ${bytes(tu)}/s`;
+  setText($("totals"), `↓ ${bytes(td)}/s\u00a0\u00a0↑ ${bytes(tu)}/s`);
   // live detail refresh
   if (!$("detail").hidden && selectedId != null) {
     if (detailTab === "general") renderGeneral();
     else if (detailTab === "peers") fetchPeers();
   }
 }
+window.addEventListener("pulsar-tab", refresh);
+
+// ---- about ---------------------------------------------------------------
+$("about-logo").append(document.querySelector("#about-open .logo").cloneNode(true));
+$("about-open").addEventListener("click", async () => {
+  try { $("about-title").textContent = `KDownloader ${await window.__TAURI__.app.getVersion()}`; } catch (e) {}
+  $("about-modal").hidden = false;
+  $("about-close").focus();
+});
+$("about-close").addEventListener("click", () => ($("about-modal").hidden = true));
+$("about-donate").addEventListener("click", () => invoke("open_donation_page").catch(showError));
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("about-modal").hidden = true; });
+
+// Sidebar entries work from the keyboard, and icon buttons say what they do.
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target.matches?.("li[tabindex]")) e.target.click();
+});
+document.querySelectorAll("button[title]").forEach((b) => b.setAttribute("aria-label", b.title));
 async function init() {
   try { settingsCache = await invoke("get_settings"); updateLimitsBadge(); updateDirLabel(); } catch (e) { showError(e); }
   await refresh();
