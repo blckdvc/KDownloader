@@ -220,9 +220,18 @@ code { background: var(--track); padding: 1px 5px; border-radius: 4px; font-size
 .dd-removal select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); }
 .dd-open { display: block; padding: 2px 0 0; }
 .dd-hint { margin: 0 0 8px; font-size: 12px; }
-.dd-account { padding: 8px 0; border-top: 1px solid var(--border); }
-.dd-account-head { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 5px; }
-.acct-bad { color: var(--err); }
+.dd-providers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.dd-provider { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; padding: 12px 8px 10px; border-radius: 9px; }
+.dd-provider.selected { border-color: var(--accent); background: var(--sel); }
+.dd-provider img { width: 34px; height: 34px; object-fit: contain; border-radius: 7px; }
+.dd-provider-name { font-weight: 600; font-size: 12.5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dd-provider-state { display: flex; align-items: center; gap: 5px; max-width: 100%; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dd-provider-state::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.dd-provider-state.on::before { background: var(--ok); }
+.dd-provider-state.warn::before { background: var(--warn); }
+.dd-provider-state.bad::before { background: var(--err); }
+.dd-provider-state.bad { color: var(--err); }
+.dd-account-detail { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; }
 .group input[type="password"] { padding: 6px 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); flex: 1; min-width: 0; }
 
 .bw-mini { margin-left: auto; display: flex; align-items: center; gap: 10px; padding: 3px 8px; font-size: 13px;

@@ -538,13 +538,16 @@ $("clear-grabbed").addEventListener("click", () => { grabbed = []; renderGrabbed
 
 // ---- settings --------------------------------------------------------------
 function accountStatus(view) {
-  if (view.error) return ["acct-bad", view.error];
-  if (!view.connected) return ["muted", "Not connected"];
+  if (view.error) return ["bad", view.error];
+  if (!view.connected) return ["off", "Not connected"];
   const { username, premium, expires } = view.account;
-  if (!premium) return ["acct-bad", `${username}: no active premium`];
-  const until = expires ? ` until ${new Date(expires * 1000).toLocaleDateString("en-GB")}` : "";
-  return ["muted", `${username}: premium${until}`];
+  if (!premium) return ["warn", `${username}: no active premium`];
+  const until = expires ? `until ${new Date(expires * 1000).toLocaleDateString("en-GB")}` : username;
+  return ["on", `Premium ${until}`];
 }
+
+let accountViews = [];
+let openAccount = null;
 
 function plainButton(label, onClick) {
   const b = document.createElement("button");
@@ -555,36 +558,56 @@ function plainButton(label, onClick) {
   return b;
 }
 
+// One card per service, connected ones first; the selected one opens below.
+function drawAccounts() {
+  const views = [...accountViews].sort((a, b) => Number(b.connected) - Number(a.connected));
+  $("accounts").replaceChildren(...views.map((view) => {
+    const [state, text] = accountStatus(view);
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = `dd-provider${openAccount === view.id ? " selected" : ""}`;
+    card.innerHTML = `<img src="providers/${esc(view.id)}.png" alt="" /><span class="dd-provider-name">${esc(view.name)}</span>
+      <span class="dd-provider-state ${state}" title="${esc(text)}">${esc(text)}</span>`;
+    card.addEventListener("click", () => {
+      openAccount = openAccount === view.id ? null : view.id;
+      drawAccounts();
+    });
+    return card;
+  }));
+  const view = accountViews.find((v) => v.id === openAccount);
+  $("account-detail").hidden = !view;
+  $("account-detail").replaceChildren();
+  if (!view) return;
+  const title = document.createElement("strong");
+  title.textContent = view.name;
+  const row = document.createElement("div");
+  row.className = "withbtn";
+  if (view.connected) {
+    row.append(plainButton("Disconnect", async () => {
+      await call("dd_disconnect_account", { provider: view.id });
+      renderAccounts();
+    }));
+  } else {
+    const input = document.createElement("input");
+    input.type = "password";
+    input.placeholder = "API key";
+    input.autocomplete = "off";
+    row.append(input, plainButton("Connect", async () => {
+      const key = input.value.trim();
+      if (!key) return;
+      input.value = "";
+      if (await call("dd_connect_account", { provider: view.id, key })) renderAccounts();
+    }), plainButton("Get key", () => call("dd_open_key_page", { provider: view.id })));
+    setTimeout(() => input.focus());
+  }
+  $("account-detail").append(title, row);
+}
+
 async function renderAccounts() {
   const views = await call("dd_list_accounts");
   if (!views) return;
-  $("accounts").replaceChildren(...views.map((view) => {
-    const box = document.createElement("div");
-    box.className = "dd-account";
-    const [cls, text] = accountStatus(view);
-    box.innerHTML = `<div class="dd-account-head"><strong>${esc(view.name)}</strong><span class="${cls}">${esc(text)}</span></div>`;
-    const row = document.createElement("div");
-    row.className = "withbtn";
-    if (view.connected) {
-      row.append(plainButton("Disconnect", async () => {
-        await call("dd_disconnect_account", { provider: view.id });
-        renderAccounts();
-      }));
-    } else {
-      const input = document.createElement("input");
-      input.type = "password";
-      input.placeholder = "API key";
-      input.autocomplete = "off";
-      row.append(input, plainButton("Connect", async () => {
-        const key = input.value.trim();
-        if (!key) return;
-        input.value = "";
-        if (await call("dd_connect_account", { provider: view.id, key })) renderAccounts();
-      }), plainButton("Get key", () => call("dd_open_key_page", { provider: view.id })));
-    }
-    box.append(row);
-    return box;
-  }));
+  accountViews = views;
+  drawAccounts();
 }
 
 $("settings-btn").addEventListener("click", async () => {
@@ -600,6 +623,7 @@ $("settings-btn").addEventListener("click", async () => {
   $("s-autostart").checked = s.auto_start_clipboard;
   $("s-removal").value = rememberedRemoval() || "";
   $("modal").hidden = false;
+  openAccount = null;
   renderAccounts();
 });
 $("s-removal").addEventListener("change", (e) => setRememberedRemoval(e.target.value));
