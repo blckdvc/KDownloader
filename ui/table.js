@@ -17,6 +17,13 @@ function setHtml(el, html) {
   lastHtml.set(el, html);
   el.innerHTML = html;
 }
+// While the window is hidden, polls run one tick in five: the Dock speed comes
+// from Rust, and the lists catch up as soon as the window shows again.
+function idleTick(counter) {
+  if (!document.hidden) return false;
+  counter.n = (counter.n + 1) % 5;
+  return counter.n !== 0;
+}
 function setText(el, text) {
   if (el.textContent !== text) el.textContent = text;
 }

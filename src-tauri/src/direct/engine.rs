@@ -24,12 +24,14 @@ use tokio_util::sync::CancellationToken;
 
 const MIN_SEGMENT: u64 = 4 * 1024 * 1024;
 const WRITE_BUFFER: usize = 256 * 1024;
+const COMMIT_EVERY: Duration = Duration::from_secs(1);
 const MAX_RETRIES: u32 = 5;
 const PROBE_RETRIES: u32 = 3;
 const MAX_RETRY_AFTER: u64 = 300;
 const MAX_HTML: usize = 2 * 1024 * 1024;
 const FIRST_WAIT: u64 = 30;
 const LONGEST_WAIT: u64 = 300;
+const MAX_WAITS: u32 = 25;
 const OUTAGE_HOLD: Duration = Duration::from_secs(20);
 /// How long a link generated during analysis is trusted when the transfer starts.
 const LINK_FRESH: Duration = Duration::from_secs(10 * 60);
@@ -106,10 +108,11 @@ pub struct Item {
     pub error: Option<String>,
     pub output: Option<PathBuf>,
     pub segments: Vec<Segment>,
-    /// Debrid service this link goes through; `direct` is its generated URL.
+    /// Debrid service this link goes through; `direct` is its generated URL,
+    /// a bearer link kept in memory only: a restart asks the service again.
     #[serde(default)]
     pub provider: Option<Provider>,
-    #[serde(default)]
+    #[serde(skip)]
     pub direct: Option<String>,
     #[serde(default)]
     pub max_chunks: Option<usize>,
@@ -210,8 +213,17 @@ impl Limiter {
             *next = Some(start + Duration::from_secs_f64(bytes as f64 / bps as f64));
             start - now
         };
-        if !wait.is_zero() {
-            sleep(wait).await;
+        // Wakes early when the limit changes, instead of finishing a wait
+        // computed at the old rate.
+        let until = now + wait;
+        while Instant::now() < until && self.bps.load(Ordering::Relaxed) == bps {
+            sleep((until - Instant::now()).min(Duration::from_millis(250))).await;
+        }
+    }
+
+    fn set(&self, bps: u64) {
+        if self.bps.swap(bps, Ordering::Relaxed) != bps {
+            *self.next.lock().unwrap() = None;
         }
     }
 }
@@ -329,7 +341,7 @@ impl Engine {
     pub fn set_settings(&self, mut settings: Settings) {
         settings.max_active = settings.max_active.clamp(1, 20);
         settings.chunks = settings.chunks.clamp(1, 16);
-        self.0.limiter.bps.store(settings.speed_limit_kib * 1024, Ordering::Relaxed);
+        self.0.limiter.set(settings.speed_limit_kib * 1024);
         self.0.state.lock().unwrap().settings = settings;
         self.save();
         self.0.wake.notify_one();
@@ -643,6 +655,7 @@ impl Engine {
     }
 
     async fn run_item(self, id: u64, token: CancellationToken) {
+        let mut unpack = None;
         let part = self.snapshot(id).map(|item| item.part_path());
         let result = self.download(id, &token).await;
         // Removed mid-flight: the transfer may have recreated the partial file.
@@ -652,12 +665,18 @@ impl Engine {
         match result {
             Ok(()) => {
                 self.update(id, |item| item.waits = 0);
-                self.finish(id).await
+                // Claimed now, so the item goes straight from downloading to extracting.
+                unpack = self.finish(id).then(|| self.claim_archive(id)).flatten();
             }
             Err(DlError::Outage(msg)) => {
                 *self.0.hold_until.lock().unwrap() = Some(Instant::now() + OUTAGE_HOLD);
                 self.update(id, |item| {
-                    if item.status == Status::Active {
+                    if item.status == Status::Active && item.waits >= MAX_WAITS {
+                        // About two hours of trying: the link, not the network, is at fault.
+                        item.status = Status::Failed;
+                        item.error = Some(msg);
+                        item.speed = 0;
+                    } else if item.status == Status::Active {
                         let wait = (FIRST_WAIT << item.waits.min(4)).min(LONGEST_WAIT);
                         item.status = Status::Waiting;
                         item.error = Some(msg);
@@ -681,6 +700,10 @@ impl Engine {
         self.0.state.lock().unwrap().running.remove(&id);
         self.save();
         self.0.wake.notify_one();
+        // Unpacking can take minutes; the next download needn't wait for it.
+        if let Some(claim) = unpack {
+            self.unpack(claim).await;
+        }
     }
 
     async fn download(&self, id: u64, token: &CancellationToken) -> Result<(), DlError> {
@@ -812,7 +835,9 @@ impl Engine {
                 Ok(()) => return Ok(()),
                 Err(Attempt::Stop(e)) => return Err(e),
                 Err(Attempt::Retry { msg, wait, progressed }) => {
-                    attempts = if progressed { 1 } else { attempts + 1 };
+                    // Progress only counts when it's kept: a server without ranges
+                    // starts over each time, and could do so forever.
+                    attempts = if progressed && job.resumable { 1 } else { attempts + 1 };
                     (msg, wait)
                 }
             };
@@ -858,7 +883,7 @@ impl Engine {
             wait: None,
             progressed: false,
         })?;
-        check_status(&resp, job)?;
+        check_status(&resp, job, pos)?;
 
         let mut file = OpenOptions::new()
             .write(true)
@@ -871,6 +896,7 @@ impl Engine {
         let mut buf = Vec::with_capacity(WRITE_BUFFER * 2);
         let mut remaining = segment.end.map(|e| e + 1 - pos);
         let mut progressed = false;
+        let mut committed = Instant::now();
         let outcome = loop {
             let next = tokio::select! {
                 _ = token.cancelled() => break Err(None),
@@ -890,8 +916,11 @@ impl Engine {
                     if let Some(left) = remaining.as_mut() {
                         *left -= n;
                     }
-                    if buf.len() >= WRITE_BUFFER {
+                    // Also once a second, or a slow connection's bytes would only
+                    // show up every few seconds, in bursts.
+                    if buf.len() >= WRITE_BUFFER || committed.elapsed() >= COMMIT_EVERY {
                         self.commit(job, &mut file, &mut buf).await.map_err(stop)?;
+                        committed = Instant::now();
                         progressed = true;
                     }
                     if remaining == Some(0) {
@@ -923,25 +952,33 @@ impl Engine {
             .ok_or(DlError::Cancelled)
     }
 
-    /// Moves the completed file into place, then unpacks it if asked to.
-    async fn finish(&self, id: u64) {
-        let Some(item) = self.snapshot(id) else { return };
-        let output = unique_path(&item.dir, &item.name);
-        if let Err(e) = fs::rename(item.part_path(), &output).await {
-            self.update(id, |it| {
-                it.status = Status::Failed;
-                it.error = Some(format!("disk: {e}"));
-            });
-            return;
-        }
+    /// Gives the finished file its name. True when it should be extracted next.
+    fn finish(&self, id: u64) -> bool {
+        let Some(item) = self.snapshot(id) else { return false };
+        // Picking a free name and taking it in one step: two files of the same
+        // name finishing together would otherwise both pick it, and one would be lost.
+        static NAMING: Mutex<()> = Mutex::new(());
+        let renamed = {
+            let _naming = NAMING.lock().unwrap();
+            let output = unique_path(&item.dir, &item.name);
+            std::fs::rename(item.part_path(), &output).map(|()| output)
+        };
+        let output = match renamed {
+            Ok(output) => output,
+            Err(e) => {
+                self.update(id, |it| {
+                    it.status = Status::Failed;
+                    it.error = Some(format!("disk: {e}"));
+                });
+                return false;
+            }
+        };
         self.update(id, |it| {
             it.output = Some(output.clone());
             it.speed = 0;
             it.status = Status::Done;
         });
-        if self.settings().auto_extract && !item.skip_extraction {
-            self.extract(id).await;
-        }
+        self.settings().auto_extract && !item.skip_extraction
     }
 
     /// Picks the archive `id` belongs to and marks it as being extracted. `None`
@@ -974,17 +1011,30 @@ impl Engine {
         }
         let volumes: Vec<PathBuf> = members.iter().filter_map(|&m| st.items[m].output.clone()).collect();
         let first = &mut st.items[lead];
-        first.status = Status::Extracting;
-        first.error = None;
+        let archive = first.output.clone()?;
         let stem = match &volume {
             Some(_) => first.package.clone(),
             None => links::archive_stem(&first.name),
         };
-        Some(Claim { lead: first.id, archive: first.output.clone()?, target: unique_path(&dir, &stem), volumes })
+        // Created right away, so that another archive with the same stem picks
+        // another folder rather than sharing, and deleting, this one.
+        let target = unique_path(&dir, &stem);
+        if let Err(e) = std::fs::create_dir_all(&target) {
+            first.error = Some(format!("extraction failed: {e}"));
+            return None;
+        }
+        first.status = Status::Extracting;
+        first.error = None;
+        Some(Claim { lead: first.id, archive, target, volumes })
     }
 
     async fn extract(&self, id: u64) {
-        let Some(claim) = self.claim_archive(id) else { return };
+        if let Some(claim) = self.claim_archive(id) {
+            self.unpack(claim).await;
+        }
+    }
+
+    async fn unpack(&self, claim: Claim) {
         // Saved now, so that quitting during extraction doesn't look like a download.
         self.save();
         let total = unpacked_size(&claim.archive).await;
@@ -1114,10 +1164,16 @@ fn io_error(e: std::io::Error) -> DlError {
     DlError::Fatal(format!("disk: {e}"))
 }
 
-fn check_status(resp: &Response, job: &Job) -> Result<(), Attempt> {
+fn check_status(resp: &Response, job: &Job, pos: u64) -> Result<(), Attempt> {
     let status = resp.status();
     let resumable = job.resumable;
+    // Bytes from anywhere but where we asked would be written at the wrong place.
+    let start = header(resp.headers(), CONTENT_RANGE)
+        .and_then(|v| v.strip_prefix("bytes ")?.split('-').next()?.trim().parse::<u64>().ok());
     match status {
+        StatusCode::PARTIAL_CONTENT if resumable && start.is_some_and(|s| s != pos) => {
+            Err(Attempt::Stop(DlError::Restart))
+        }
         StatusCode::PARTIAL_CONTENT if resumable => Ok(()),
         StatusCode::OK if !resumable => Ok(()),
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN | StatusCode::NOT_FOUND | StatusCode::GONE

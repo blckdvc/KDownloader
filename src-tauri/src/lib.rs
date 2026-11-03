@@ -24,6 +24,8 @@ use librqbit::{
 /// Fixed incoming port for peer connections (also UPnP-forwarded). A high
 /// ephemeral port avoids the 6881-6889 range some ISPs throttle.
 const LISTEN_PORT: u16 = 51413;
+/// How long adding a magnet waits for its metadata from the swarm.
+const METADATA_WAIT: Duration = Duration::from_secs(5 * 60);
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{Manager, State};
@@ -127,6 +129,7 @@ pub struct Shared {
     cfg_dir: PathBuf,
     settings: Arc<Mutex<Settings>>,
     meta: Arc<Mutex<HashMap<String, TMeta>>>,
+    meta_saving: Arc<Mutex<()>>,
     rss_seen: Arc<Mutex<HashSet<String>>>,
     http: reqwest::Client,
     /// Last-seen per-session uploaded bytes per info-hash, to fold deltas into
@@ -205,12 +208,14 @@ impl Shared {
         }
     }
     fn save_meta(&self) {
-        if let Ok(m) = self.meta.lock() {
-            let _ = direct::engine::write_atomic(
-                &self.meta_path(),
-                &serde_json::to_vec_pretty(&*m).unwrap_or_default(),
-            );
-        }
+        // Written after the lock is released: list_torrents needs it every second.
+        // meta_saving keeps an older copy from landing after a newer one.
+        let _saving = self.meta_saving.lock();
+        let bytes = match self.meta.lock() {
+            Ok(m) => serde_json::to_vec_pretty(&*m).unwrap_or_default(),
+            Err(_) => return,
+        };
+        let _ = direct::engine::write_atomic(&self.meta_path(), &bytes);
     }
     fn save_rss_seen(&self) {
         if let Ok(s) = self.rss_seen.lock() {
@@ -268,9 +273,31 @@ impl Shared {
     /// by resolving the metadata first (list-only) to learn the name, then
     /// re-adding into `<save path>/<name>`.
     async fn add_prepared(&self, add: AddTorrent<'_>, o: AddOpts) -> anyhow::Result<u64> {
+        // The session only spots a duplicate after the metadata arrives, which
+        // for a magnet means asking the swarm again.
+        if let AddTorrent::Url(url) = &add {
+            if let Some(hash) = librqbit::Magnet::parse(url).ok().and_then(|m| m.as_id20()) {
+                let known = self.session.with_torrents(|it| {
+                    let mut found = None;
+                    for (id, h) in it {
+                        if h.info_hash() == hash {
+                            found = Some((id, h.clone()));
+                            break;
+                        }
+                    }
+                    found
+                });
+                if let Some((id, handle)) = known {
+                    return self.finish_add(AddTorrentResponse::AlreadyManaged(id, handle), &o).await;
+                }
+            }
+        }
         let mut probe = self.build_opts(&o);
         probe.list_only = true;
-        let resp = self.session.add_torrent(add, Some(probe)).await?;
+        // A magnet nobody seeds would otherwise wait forever, and hold up RSS.
+        let resp = tokio::time::timeout(METADATA_WAIT, self.session.add_torrent(add, Some(probe)))
+            .await
+            .map_err(|_| anyhow::anyhow!("no peer sent this magnet's metadata within 5 minutes"))??;
         let lo = match resp {
             AddTorrentResponse::ListOnly(lo) => lo,
             // Already managed (duplicate) — nothing to place, just return it.
@@ -370,7 +397,7 @@ async fn list_torrents(state: State<'_, Shared>) -> Result<Vec<Value>, String> {
     let out = state.session.with_torrents(|it| {
         let mut v = Vec::new();
         for (id, handle) in it {
-            let stats = handle.stats();
+            let stats = handle.stats_brief();
             let mut stats_json = serde_json::to_value(&stats).unwrap_or(Value::Null);
             let swarm = state.session.tracker_swarm(&handle.info_hash());
             let hash = format!("{:?}", handle.info_hash());
@@ -385,7 +412,7 @@ async fn list_torrents(state: State<'_, Shared>) -> Result<Vec<Value>, String> {
                 + stats.uploaded_bytes.saturating_sub(last_up.get(&hash).copied().unwrap_or(0));
             if let Some(obj) = stats_json.as_object_mut() {
                 obj.insert("uploaded_bytes".to_string(), json!(total_up));
-                // One entry per file, sent every second, and nothing reads it.
+                // Left empty by stats_brief: nothing here reads it.
                 obj.remove("file_progress");
             }
             v.push(json!({
@@ -450,7 +477,8 @@ async fn set_files(state: State<'_, Shared>, id: u64, indices: Vec<usize>) -> Re
 }
 
 #[tauri::command]
-fn set_category(state: State<'_, Shared>, id: u64, category: String) -> Result<(), String> {
+// async keeps the save's disk flush off the main thread.
+async fn set_category(state: State<'_, Shared>, id: u64, category: String) -> Result<(), String> {
     let h = state
         .session
         .get((id as usize).into())
@@ -465,7 +493,8 @@ fn set_category(state: State<'_, Shared>, id: u64, category: String) -> Result<(
 }
 
 #[tauri::command]
-fn set_tags(state: State<'_, Shared>, id: u64, tags: Vec<String>) -> Result<(), String> {
+// async keeps the save's disk flush off the main thread.
+async fn set_tags(state: State<'_, Shared>, id: u64, tags: Vec<String>) -> Result<(), String> {
     let h = state
         .session
         .get((id as usize).into())
@@ -507,9 +536,11 @@ async fn reannounce(state: State<'_, Shared>, id: u64) -> Result<(), String> {
     let handle = session
         .get((id as usize).into())
         .ok_or_else(|| "torrent not found".to_string())?;
-    if !handle.is_paused() {
-        session.pause(&handle).await.map_err(e2s)?;
+    // A paused or errored torrent has nothing to announce, and must stay as it is.
+    if handle.live().is_none() {
+        return Ok(());
     }
+    session.pause(&handle).await.map_err(e2s)?;
     session.unpause(&handle).await.map_err(e2s)
 }
 
@@ -520,7 +551,7 @@ async fn remove_torrent(state: State<'_, Shared>, id: u64, delete_files: bool) -
     let hash = handle.as_ref().map(hash_hex);
     // Listed before the torrent goes: KDownloader deletes through the Trash, so the
     // session only forgets it.
-    let files = handle.as_ref().filter(|_| delete_files).map(|h| torrent_paths(h)).unwrap_or_default();
+    let (files, dirs) = handle.as_ref().filter(|_| delete_files).map(|h| torrent_paths(h)).unwrap_or_default();
     state.session.delete((id as usize).into(), false).await.map_err(e2s)?;
     if let Some(hash) = hash {
         if let Ok(mut m) = state.meta.lock() {
@@ -531,16 +562,33 @@ async fn remove_torrent(state: State<'_, Shared>, id: u64, delete_files: bool) -
     if !files.is_empty() {
         direct::engine::to_trash(&files).map_err(e2s)?;
     }
+    // Folders the files leave empty, deepest first; remove_dir keeps any that aren't.
+    for dir in dirs {
+        // Finder's own .DS_Store doesn't make a folder worth keeping.
+        let _ = std::fs::remove_file(dir.join(".DS_Store"));
+        let _ = std::fs::remove_dir(dir);
+    }
     Ok(())
 }
 
-/// A torrent's files on disk, or its own folder when it has one.
-fn torrent_paths(handle: &librqbit::ManagedTorrent) -> Vec<PathBuf> {
+/// A torrent's files on disk, and the folders that only it created.
+fn torrent_paths(handle: &librqbit::ManagedTorrent) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let root = handle.output_folder().to_path_buf();
     let files = handle
         .with_metadata(|m| m.file_infos.iter().map(|f| root.join(&f.relative_filename)).collect::<Vec<_>>())
         .unwrap_or_default();
-    files.into_iter().filter(|p| p.exists()).collect()
+    let mut dirs: Vec<PathBuf> = files
+        .iter()
+        .flat_map(|f| f.ancestors().skip(1).take_while(|d| *d != root).map(Path::to_path_buf))
+        .collect();
+    // The torrent's own folder, as add_prepared names it; never a shared save path.
+    let name = handle.name().map(|n| sanitize_component(&n));
+    if name.is_some_and(|n| root.file_name().is_some_and(|f| f.to_string_lossy() == n)) {
+        dirs.push(root.clone());
+    }
+    dirs.sort_by(|a, b| b.components().count().cmp(&a.components().count()).then(a.cmp(b)));
+    dirs.dedup();
+    (files.into_iter().filter(|p| p.exists()).collect(), dirs)
 }
 
 /// Live per-peer list for the selected torrent (Peers tab).
@@ -674,7 +722,7 @@ async fn upload_accounting_loop(shared: Shared) {
         tokio::time::sleep(Duration::from_secs(3)).await;
         // Snapshot (hash -> current session uploaded) without holding locks.
         let live: Vec<(String, u64)> = shared.session.with_torrents(|it| {
-            it.map(|(_, h)| (format!("{:?}", h.info_hash()), h.stats().uploaded_bytes))
+            it.map(|(_, h)| (format!("{:?}", h.info_hash()), h.stats_brief().uploaded_bytes))
                 .collect()
         });
         {
@@ -797,7 +845,10 @@ pub fn run() {
                         default_rust_log_value: Some("info"),
                         log_file: Some(&log_path),
                         // The live module logs every piece: 100 KB/s at full speed.
-                        log_file_rust_log: Some("info,librqbit=debug,librqbit::torrent_state::live=info,librqbit_upnp=debug"),
+                        // "librqbit" also matches the librqbit_* crates by prefix; DHT,
+                        // tracker and task debug lines were 90% of the log, then one line per peer
+                        // connection.
+                        log_file_rust_log: Some("info,librqbit=debug,librqbit::torrent_state::live=info,librqbit::stream_connect=info,librqbit_dht=info,librqbit_core=info,librqbit_tracker_comms=info,librqbit_upnp=debug"),
                         log_file_json: false,
                     },
                 );
@@ -906,6 +957,7 @@ pub fn run() {
                 cfg_dir: cfg_dir.clone(),
                 settings: Arc::new(Mutex::new(settings)),
                 meta: Arc::new(Mutex::new(meta)),
+                meta_saving: Arc::default(),
                 rss_seen: Arc::new(Mutex::new(rss_seen)),
                 http,
                 last_up: Arc::new(Mutex::new(HashMap::new())),

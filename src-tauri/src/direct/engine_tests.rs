@@ -762,3 +762,20 @@ fn segments_cover_the_whole_file() {
     assert_eq!(plan_segments(Some(1024), true, 8).len(), 1);
     assert_eq!(plan_segments(None, false, 8)[0].end, None);
 }
+
+#[tokio::test]
+async fn raising_the_speed_limit_takes_effect_at_once() {
+    let limiter = Arc::new(Limiter::default());
+    limiter.set(1024);
+    // Reserves 64 s of transfer at 1 KiB/s, as a slow connection would.
+    let waiting = tokio::spawn({
+        let limiter = limiter.clone();
+        async move { limiter.take(64 * 1024).await }
+    });
+    sleep(Duration::from_millis(100)).await;
+    limiter.set(100 * 1024 * 1024);
+    let started = Instant::now();
+    limiter.take(64 * 1024).await;
+    tokio::time::timeout(Duration::from_secs(2), waiting).await.expect("old wait kept going").unwrap();
+    assert!(started.elapsed() < Duration::from_secs(1));
+}

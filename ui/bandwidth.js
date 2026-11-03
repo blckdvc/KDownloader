@@ -32,6 +32,7 @@ function record() {
   const direct = window.kdownloaderDirectSpeed || 0;
   samples.push({ at: Date.now(), torrentDown, torrentUp, direct, total: torrentDown + torrentUp + direct });
   if (samples.length > MAX_SECONDS) samples.shift();
+  if (document.hidden) return; // drawn again once visible
   renderMini();
   if (!document.getElementById("view-bandwidth").hidden) render();
 }
@@ -40,6 +41,7 @@ function record() {
 function renderMini() {
   const recent = samples.slice(-MINI_SECONDS);
   const last = recent[recent.length - 1];
+  if (!last) return; // shown before the first sample
   $("mini-text").textContent = `↓ ${rate(last.torrentDown + last.direct)}  ↑ ${rate(last.torrentUp)}`;
   const peak = Math.max(1024, ...recent.map((p) => p.total));
   const x = (i) => MINI_W * ((MINI_SECONDS - recent.length + i) / (MINI_SECONDS - 1));
@@ -132,8 +134,11 @@ $("chart").addEventListener("mousemove", (e) => {
   const shown = visible();
   const plotW = $("chart").clientWidth - MARGIN.left - MARGIN.right;
   const slot = Math.round(((e.offsetX - MARGIN.left) / plotW) * (range - 1)) - (range - shown.length);
-  hover = shown.length ? Math.min(shown.length - 1, Math.max(0, slot)) : null;
-  render();
+  const next = shown.length ? Math.min(shown.length - 1, Math.max(0, slot)) : null;
+  // Redraw only when the cursor reaches another sample, at most once a frame.
+  if (next === hover) return;
+  hover = next;
+  if (!render.queued) { render.queued = true; requestAnimationFrame(() => { render.queued = false; render(); }); }
 });
 $("chart").addEventListener("mouseleave", () => { hover = null; render(); });
 
@@ -147,5 +152,6 @@ document.querySelectorAll("#view-bandwidth [data-range]").forEach((button) => {
 });
 
 new ResizeObserver(render).observe($("chart"));
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { renderMini(); render(); } });
 setInterval(record, 1000);
 })();
