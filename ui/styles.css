@@ -227,7 +227,7 @@ code { background: var(--track); padding: 1px 5px; border-radius: 4px; font-size
 .dd-grid { margin-top: 12px; }
 .rm-remember { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
 .dd-removal { margin-top: 10px; }
-.dd-removal select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); }
+.dd-removal select, .select-field select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); }
 .dd-open { display: block; padding: 2px 0 0; }
 .dd-hint { margin: 0 0 8px; font-size: 12px; }
 .dd-providers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
