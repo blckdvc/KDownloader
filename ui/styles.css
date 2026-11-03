@@ -17,10 +17,14 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { height: 100%; }
+/* What's worth copying: typed text, the details pane and error messages. */
+input, textarea, .detail-body, .error { user-select: text; -webkit-user-select: text; }
 body {
   margin: 0; display: flex; flex-direction: column; overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   color: var(--text); background: var(--bg); font-size: 13px;
+  /* Like a native app: labels, tabs and lists don't select as text. */
+  user-select: none; -webkit-user-select: none; cursor: default;
 }
 
 /* Toolbar */
@@ -219,7 +223,7 @@ code { background: var(--track); padding: 1px 5px; border-radius: 4px; font-size
 .dd-grabber .opts { align-items: center; gap: 8px; padding: 7px 14px; }
 .dd-status, .dd-clip { overflow: hidden; text-overflow: ellipsis; }
 .dd-status .st { max-width: 100%; }
-.dd-c-check { width: 34px; } .dd-c-size { width: 80px; } .dd-c-package { width: 26%; } .dd-c-state { width: 330px; }
+.dd-c-size { width: 80px; } .dd-c-package { width: 26%; } .dd-c-state { width: 330px; }
 .dd-grid { margin-top: 12px; }
 .rm-remember { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
 .dd-removal { margin-top: 10px; }
