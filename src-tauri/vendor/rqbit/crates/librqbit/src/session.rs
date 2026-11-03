@@ -1406,7 +1406,6 @@ impl Session {
                     mse_mode: self.mse_mode,
                     allow_overwrite: opts.overwrite,
                     output_folder,
-                    ratelimits: opts.ratelimits,
                     initial_peers: opts.initial_peers.clone().unwrap_or_default(),
                     peer_limit: opts.peer_limit.or(self.peer_limit),
                     #[cfg(feature = "disable-upload")]
@@ -1416,6 +1415,7 @@ impl Session {
                 session: Arc::downgrade(self),
                 magnet_name: name,
                 client_name_and_version: self.client_name_and_version.clone(),
+                ratelimits: Arc::new(crate::limits::Limits::new(opts.ratelimits)),
             });
 
             let initializing = Arc::new(TorrentStateInitializing::new(
