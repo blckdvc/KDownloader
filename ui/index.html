@@ -199,13 +199,15 @@
 
         <div id="dd-grabber-view" class="dd-grabber" hidden>
           <div class="opts">
-            <button id="dd-add-selected" type="button" class="primary" disabled>Add selected</button>
-            <button id="dd-clear-grabbed" type="button" class="ghost">Clear</button>
+            <button id="dd-add-all" type="button" class="primary" disabled>Add all</button>
+            <button id="dd-add-selected" type="button" class="ghost" disabled>Add selected</button>
+            <button id="dd-clear-grabbed" type="button" class="ghost">Clear list</button>
+            <span class="muted">Click to select, ⌘ or ⇧ for several. Right-click or Delete to remove.</span>
           </div>
           <div class="table-wrap">
             <table class="ttable">
-              <colgroup><col class="dd-c-check" /><col /><col class="dd-c-size" /><col class="dd-c-package" /><col class="dd-c-state" /></colgroup>
-              <thead><tr><th></th><th class="col-name">Name</th><th class="num">Size</th><th>Package</th><th>Status</th></tr></thead>
+              <colgroup><col /><col class="dd-c-size" /><col class="dd-c-package" /><col class="dd-c-state" /></colgroup>
+              <thead><tr><th class="col-name">Name</th><th class="num">Size</th><th>Package</th><th>Status</th></tr></thead>
               <tbody id="dd-grabbed"></tbody>
             </table>
             <div id="dd-grab-empty" class="empty"><p>Nothing to review.</p><p class="muted">Links you copy appear here before they start.</p></div>
