@@ -281,6 +281,9 @@ function renderTable() {
       const x = sortValue(a, sort.col), y = sortValue(b, sort.col);
       return x < y ? -sort.dir : x > y ? sort.dir : 0;
     });
+  // Actions apply to what the user can see: rows a filter hides leave the selection.
+  const shown = new Set(rows.map((i) => i.id));
+  for (const id of selectedIds) if (!shown.has(id)) selectedIds.delete(id);
   patchRows($("tbody"), rows.map((item) => {
     const pct = percent(item);
     const active = item.status === "active";
@@ -712,5 +715,7 @@ listen("clipboard-error", (event) => showFailure(`Clipboard unavailable: ${event
 renderGrabbed();
 loadSettings();
 refresh();
-setInterval(refresh, 1000);
+const hiddenTicks = { n: 0 };
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+setInterval(() => idleTick(hiddenTicks) || refresh(), 1000);
 })();

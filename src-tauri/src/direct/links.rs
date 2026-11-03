@@ -78,7 +78,9 @@ pub fn sanitize(name: &str) -> String {
         .chars()
         .map(|c| if c.is_control() || ":*?\"<>|".contains(c) { '_' } else { c })
         .collect();
-    let clean = clean.trim().trim_start_matches('.').trim();
+    // Dots and spaces go together: trimming them in turns let ". . .." become
+    // ".." on a second pass.
+    let clean = clean.trim_start_matches(|c: char| c == '.' || c.is_whitespace()).trim_end();
     if clean.is_empty() { "download".to_string() } else { clean.to_string() }
 }
 
@@ -152,6 +154,16 @@ pub fn archive_stem(file: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sanitized_names_never_climb_out() {
+        for name in [". . ..", "..", " . ", ". . ...zip", "../../x", "\u{0}.."] {
+            let once = sanitize(name);
+            assert_eq!(sanitize(&once), once, "{name:?}");
+            assert!(!once.starts_with('.') && !once.contains('/'), "{name:?} -> {once:?}");
+        }
+        assert_eq!(sanitize(". . ...zip"), "zip");
+    }
 
     #[test]
     fn rar_volumes_are_ordered_in_both_namings() {

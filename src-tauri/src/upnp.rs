@@ -15,6 +15,7 @@ use tracing::{info, warn};
 
 const SSDP_ADDR: &str = "239.255.255.250:1900";
 const LEASE_SECS: u32 = 3600;
+const PERMANENT_ONLY: &str = "the router only accepts permanent mappings";
 
 struct Igd {
     control_url: String,
@@ -186,6 +187,17 @@ async fn fetch_igd(http: &reqwest::Client, location: &str, local_ip: Ipv4Addr) -
 }
 
 async fn add_mapping(http: &reqwest::Client, igd: &Igd, port: u16, proto: &str) -> Result<()> {
+    match add_mapping_for(http, igd, port, proto, LEASE_SECS).await {
+        // Many older routers refuse timed leases (error 725) and only take
+        // permanent ones; renewing it keeps it pointed at us.
+        Err(e) if e.to_string() == PERMANENT_ONLY => {
+            add_mapping_for(http, igd, port, proto, 0).await
+        }
+        other => other,
+    }
+}
+
+async fn add_mapping_for(http: &reqwest::Client, igd: &Igd, port: u16, proto: &str, lease: u32) -> Result<()> {
     let action = format!("{}#AddPortMapping", igd.service_type);
     let body = format!(
         "<?xml version=\"1.0\"?>\
@@ -205,7 +217,7 @@ async fn add_mapping(http: &reqwest::Client, igd: &Igd, port: u16, proto: &str) 
         port = port,
         proto = proto,
         ip = igd.local_ip,
-        lease = LEASE_SECS,
+        lease = lease,
     );
     let resp = http
         .post(&igd.control_url)
@@ -218,6 +230,9 @@ async fn add_mapping(http: &reqwest::Client, igd: &Igd, port: u16, proto: &str) 
     if !resp.status().is_success() {
         let code = resp.status();
         let txt = resp.text().await.unwrap_or_default();
+        if txt.contains("OnlyPermanentLeasesSupported") || txt.contains("<errorCode>725</errorCode>") {
+            bail!(PERMANENT_ONLY);
+        }
         bail!("AddPortMapping {code}: {}", txt.chars().take(200).collect::<String>());
     }
     Ok(())
