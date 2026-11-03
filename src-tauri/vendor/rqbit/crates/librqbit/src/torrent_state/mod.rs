@@ -502,6 +502,16 @@ impl ManagedTorrent {
 
     /// Get stats.
     pub fn stats(&self) -> TorrentStats {
+        self.stats_with(true)
+    }
+
+    /// KDownloader: stats without the per-file progress, which copies one entry
+    /// per file under the state lock and is unused by a once-a-second list.
+    pub fn stats_brief(&self) -> TorrentStats {
+        self.stats_with(false)
+    }
+
+    fn stats_with(&self, files: bool) -> TorrentStats {
         use stats::TorrentStatsState as S;
         let mut resp = TorrentStats {
             total_bytes: self
@@ -532,7 +542,9 @@ impl ManagedTorrent {
                     resp.total_bytes = hns.total();
                     resp.progress_bytes = hns.progress();
                     resp.finished = hns.finished();
-                    resp.file_progress = p.chunk_tracker.per_file_have_bytes().to_owned();
+                    if files {
+                        resp.file_progress = p.chunk_tracker.per_file_have_bytes().to_owned();
+                    }
                 }
                 ManagedTorrentState::Live(l) => {
                     resp.state = S::Live;
@@ -542,12 +554,14 @@ impl ManagedTorrent {
                     resp.progress_bytes = hns.progress();
                     resp.finished = hns.finished();
                     resp.uploaded_bytes = l.get_uploaded_bytes();
-                    resp.file_progress = l
-                        .lock_read("file_progress")
-                        .get_chunks()
-                        .ok()
-                        .map(|c| c.per_file_have_bytes().to_owned())
-                        .unwrap_or_default();
+                    if files {
+                        resp.file_progress = l
+                            .lock_read("file_progress")
+                            .get_chunks()
+                            .ok()
+                            .map(|c| c.per_file_have_bytes().to_owned())
+                            .unwrap_or_default();
+                    }
                     resp.live = Some(live_stats);
                 }
                 ManagedTorrentState::Error(e) => {

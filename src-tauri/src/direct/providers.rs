@@ -12,6 +12,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::time::sleep;
 
 const HOSTS_TTL: Duration = Duration::from_secs(6 * 3600);
+/// After a failed fetch, links count as unsupported for this long rather than
+/// each one waiting for the same unreachable service.
+const HOSTS_RETRY: Duration = Duration::from_secs(120);
 const DELAYED_POLLS: u32 = 24;
 const FORM: &str = "application/x-www-form-urlencoded";
 
@@ -139,7 +142,10 @@ impl ApiError {
 pub struct Accounts {
     http: Client,
     keys: Mutex<HashMap<Provider, String>>,
+    /// Each list with the time it expires.
     hosts: Mutex<HashMap<Provider, (Instant, Vec<String>)>>,
+    /// One fetch at a time, so a cold cache isn't fetched once per link.
+    fetching: tokio::sync::Mutex<()>,
     bases: Mutex<HashMap<Provider, String>>,
     delayed_wait: Mutex<Duration>,
 }
@@ -150,6 +156,7 @@ impl Accounts {
             http,
             keys: Mutex::default(),
             hosts: Mutex::default(),
+            fetching: tokio::sync::Mutex::const_new(()),
             bases: Mutex::default(),
             delayed_wait: Mutex::new(Duration::from_secs(5)),
         }
@@ -161,6 +168,8 @@ impl Accounts {
             Some(key) => keys.insert(provider, key),
             None => keys.remove(&provider),
         };
+        // A list fetched (or failed) under the old key says nothing about the new one.
+        self.hosts.lock().unwrap().remove(&provider);
     }
 
     pub fn has_key(&self, provider: Provider) -> bool {
@@ -214,16 +223,27 @@ impl Accounts {
     }
 
     async fn supports(&self, provider: Provider, host: &str) -> bool {
-        let cached = self.hosts.lock().unwrap().get(&provider).cloned();
-        let domains = match cached {
-            Some((at, domains)) if at.elapsed() < HOSTS_TTL => domains,
-            _ => match self.fetch_hosts(provider).await {
-                Ok(domains) => {
-                    self.hosts.lock().unwrap().insert(provider, (Instant::now(), domains.clone()));
-                    domains
+        let cached = || {
+            let hosts = self.hosts.lock().unwrap();
+            hosts.get(&provider).filter(|(until, _)| *until > Instant::now()).map(|(_, d)| d.clone())
+        };
+        let domains = match cached() {
+            Some(domains) => domains,
+            None => {
+                let _one = self.fetching.lock().await;
+                match cached() {
+                    Some(domains) => domains,
+                    None => {
+                        let fetched = self.fetch_hosts(provider).await;
+                        let (ttl, domains) = match fetched {
+                            Ok(domains) => (HOSTS_TTL, domains),
+                            Err(_) => (HOSTS_RETRY, Vec::new()),
+                        };
+                        self.hosts.lock().unwrap().insert(provider, (Instant::now() + ttl, domains.clone()));
+                        domains
+                    }
                 }
-                Err(_) => return false,
-            },
+            }
         };
         domains.iter().any(|d| host_matches(host, d))
     }

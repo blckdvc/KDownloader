@@ -53,44 +53,53 @@ pub fn dd_list_unchecked(engine: State<Engine>, text: String) -> Vec<Probe> {
     engine.list_unchecked(&text)
 }
 
+// The commands that save run async: a sync command runs on the main thread,
+// and each save flushes the queue file to disk.
 #[tauri::command]
-pub fn dd_add(engine: State<Engine>, probes: Vec<Probe>, options: Option<AddOptions>) {
+pub async fn dd_add(engine: State<'_, Engine>, probes: Vec<Probe>, options: Option<AddOptions>) -> Result<(), String> {
     engine.add_with(probes, options.unwrap_or_default());
+    Ok(())
 }
 
 #[tauri::command]
-pub fn dd_list(engine: State<Engine>) -> Vec<Item> {
-    engine.list()
+pub async fn dd_list(engine: State<'_, Engine>) -> Result<Vec<Item>, String> {
+    Ok(engine.list())
 }
 
 #[tauri::command]
-pub fn dd_pause(engine: State<Engine>, id: u64) {
+pub async fn dd_pause(engine: State<'_, Engine>, id: u64) -> Result<(), String> {
     engine.pause(id);
+    Ok(())
 }
 
 #[tauri::command]
-pub fn dd_resume(engine: State<Engine>, id: u64) {
+pub async fn dd_resume(engine: State<'_, Engine>, id: u64) -> Result<(), String> {
     engine.resume(id);
+    Ok(())
 }
 
 #[tauri::command]
-pub fn dd_pause_all(engine: State<Engine>) {
+pub async fn dd_pause_all(engine: State<'_, Engine>) -> Result<(), String> {
     engine.pause_all();
+    Ok(())
 }
 
 #[tauri::command]
-pub fn dd_resume_all(engine: State<Engine>) {
+pub async fn dd_resume_all(engine: State<'_, Engine>) -> Result<(), String> {
     engine.resume_all();
+    Ok(())
 }
 
 #[tauri::command]
-pub fn dd_remove(engine: State<Engine>, id: u64, delete_file: bool) {
+pub async fn dd_remove(engine: State<'_, Engine>, id: u64, delete_file: bool) -> Result<(), String> {
     engine.remove(id, delete_file);
+    Ok(())
 }
 
 #[tauri::command]
-pub fn dd_clear_done(engine: State<Engine>) {
+pub async fn dd_clear_done(engine: State<'_, Engine>) -> Result<(), String> {
     engine.clear_done();
+    Ok(())
 }
 
 #[tauri::command]
@@ -100,8 +109,9 @@ pub async fn dd_retry_extraction(engine: State<'_, Engine>, id: u64) -> Result<(
 }
 
 #[tauri::command]
-pub fn dd_move(engine: State<Engine>, ids: Vec<u64>, to_top: bool) {
+pub async fn dd_move(engine: State<'_, Engine>, ids: Vec<u64>, to_top: bool) -> Result<(), String> {
     engine.move_items(&ids, to_top);
+    Ok(())
 }
 
 #[tauri::command]
@@ -116,8 +126,9 @@ pub fn dd_get_settings(engine: State<Engine>) -> Settings {
 }
 
 #[tauri::command]
-pub fn dd_set_settings(engine: State<Engine>, settings: Settings) {
+pub async fn dd_set_settings(engine: State<'_, Engine>, settings: Settings) -> Result<(), String> {
     engine.set_settings(settings);
+    Ok(())
 }
 
 /// Connected accounts, with live status. Keys never leave the backend.
