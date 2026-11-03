@@ -189,7 +189,9 @@ function renderTable() {
     const x = sortVal(a, sort.col), y = sortVal(b, sort.col);
     if (x < y) return -1 * sort.dir; if (x > y) return 1 * sort.dir; return 0;
   });
-  for (const id of selectedIds) if (!torrents.some((t) => t.id === id)) selectedIds.delete(id);
+  // Actions apply to what the user can see: rows a filter hides leave the selection.
+  const shown = new Set(rows.map((t) => t.id));
+  for (const id of selectedIds) if (!shown.has(id)) selectedIds.delete(id);
   if (selectedId != null && !selectedIds.has(selectedId)) selectedId = [...selectedIds].pop() ?? null;
   patchRows($("tbody"), rows.map((t) => {
     const m = metrics(t);
@@ -246,17 +248,21 @@ resizableColumns({
 });
 
 // ---- toolbar actions -----------------------------------------------------
+// An errored torrent resumes (fetching what's missing) but can't be paused.
+const canResume = (t) => t.paused || !!metrics(t).st.error;
+const canPause = (t) => !t.paused && !metrics(t).st.error;
+const pickedIds = (test, ids = [...selectedIds]) => torrents.filter((t) => ids.includes(t.id) && test(t)).map((t) => t.id);
 function syncToolbar() {
   const picked = torrents.filter((x) => selectedIds.has(x.id));
-  $("tb-resume").disabled = !picked.some((t) => t.paused);
-  $("tb-pause").disabled = !picked.some((t) => !t.paused);
+  $("tb-resume").disabled = !picked.some(canResume);
+  $("tb-pause").disabled = !picked.some(canPause);
   $("tb-remove").disabled = !picked.length;
 }
 async function forSelected(command, ids = [...selectedIds]) {
   try { await Promise.all(ids.map((id) => invoke(command, { id }))); await refresh(); } catch (e) { showError(e); }
 }
-$("tb-resume").addEventListener("click", () => forSelected("resume_torrent", torrents.filter((t) => selectedIds.has(t.id) && t.paused).map((t) => t.id)));
-$("tb-pause").addEventListener("click", () => forSelected("pause_torrent", torrents.filter((t) => selectedIds.has(t.id) && !t.paused).map((t) => t.id)));
+$("tb-resume").addEventListener("click", () => forSelected("resume_torrent", pickedIds(canResume)));
+$("tb-pause").addEventListener("click", () => forSelected("pause_torrent", pickedIds(canPause)));
 
 let rmTarget = null;
 function openRemoveModal(ids = [...selectedIds]) {
@@ -304,8 +310,8 @@ $("tbody").addEventListener("contextmenu", (e) => {
   const t = torrents.find((x) => x.id === id); if (!t) return;
   const ids = [...selectedIds];
   const items = ids.length > 1 ? [
-    { label: `▶ Resume ${ids.length} torrents`, act: () => forSelected("resume_torrent", ids) },
-    { label: `⏸ Pause ${ids.length} torrents`, act: () => forSelected("pause_torrent", ids) },
+    { label: `▶ Resume ${ids.length} torrents`, act: () => forSelected("resume_torrent", pickedIds(canResume, ids)) },
+    { label: `⏸ Pause ${ids.length} torrents`, act: () => forSelected("pause_torrent", pickedIds(canPause, ids)) },
     { label: `📡 Force re-announce ${ids.length} torrents`, act: () => forSelected("reannounce", ids) },
     { sep: true },
     { label: `✕ Remove ${ids.length} torrents (keep files)`, act: () => removeNow(ids, false) },
@@ -569,6 +575,8 @@ $("reveal").addEventListener("click", async () => {
 
 // ---- poll loop -----------------------------------------------------------
 let refreshing = false;
+const hiddenTicks = { n: 0 };
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 async function refresh() {
   if (refreshing) return;
   refreshing = true;
@@ -607,6 +615,6 @@ document.querySelectorAll("button[title]").forEach((b) => b.setAttribute("aria-l
 async function init() {
   try { settingsCache = await invoke("get_settings"); updateLimitsBadge(); updateDirLabel(); } catch (e) { showError(e); }
   await refresh();
-  setInterval(refresh, 1000);
+  setInterval(() => idleTick(hiddenTicks) || refresh(), 1000);
 }
 init();
