@@ -554,7 +554,7 @@ function openSettings() {
   $("s-watch").checked = !!s.watch_enabled; $("s-watchdir").value = s.watch_dir || ""; $("s-watchcat").value = s.watch_category || "";
   $("s-rss").checked = !!s.rss_enabled; $("s-rssint").value = s.rss_interval_min ?? 15;
   $("s-port").value = s.listen_port ?? 51413; $("s-upnp").checked = s.upnp_enabled ?? true; $("s-utp").checked = !!s.utp_enabled; $("s-bind").value = s.bind_device || "";
-  $("s-proxy").value = s.proxy_url || ""; $("s-blocklist").value = s.blocklist_url || ""; $("s-peers").value = s.peer_limit || ""; $("s-trackers").value = s.extra_trackers || "";
+  $("s-proxy").value = s.proxy_url || ""; $("s-blocklist").value = s.blocklist_url || ""; $("s-peers").value = s.peer_limit || ""; $("s-trackers").value = s.extra_trackers || ""; $("s-encryption").value = s.encryption || "preferred";
   const fe = $("feeds"); fe.innerHTML = ""; (s.feeds || []).forEach((f) => fe.appendChild(feedRow(f)));
   $("modal").hidden = false;
 }
@@ -571,9 +571,9 @@ async function saveSettings() {
     watch_enabled: $("s-watch").checked, watch_dir: val("s-watchdir"), watch_category: val("s-watchcat"),
     rss_enabled: $("s-rss").checked, rss_interval_min: Math.max(1, num("s-rssint")), feeds,
     listen_port: Math.min(65535, Math.max(1, num("s-port") || 51413)), upnp_enabled: $("s-upnp").checked, utp_enabled: $("s-utp").checked, bind_device: val("s-bind"),
-    proxy_url: val("s-proxy"), blocklist_url: val("s-blocklist"), peer_limit: num("s-peers"), extra_trackers: $("s-trackers").value.trim(),
+    proxy_url: val("s-proxy"), blocklist_url: val("s-blocklist"), peer_limit: num("s-peers"), extra_trackers: $("s-trackers").value.trim(), encryption: $("s-encryption").value,
   };
-  const restartKeys = ["listen_port", "upnp_enabled", "utp_enabled", "bind_device", "proxy_url", "blocklist_url", "peer_limit", "extra_trackers"];
+  const restartKeys = ["listen_port", "upnp_enabled", "utp_enabled", "bind_device", "proxy_url", "blocklist_url", "peer_limit", "extra_trackers", "encryption"];
   const portChanged = settingsCache && restartKeys.some((k) => settings[k] !== settingsCache[k]);
   try {
     await invoke("save_settings", { settings }); settingsCache = settings; updateLimitsBadge(); updateDirLabel(); $("modal").hidden = true;

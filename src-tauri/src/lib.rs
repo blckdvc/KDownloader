@@ -83,6 +83,8 @@ struct Settings {
     extra_trackers: String,
     /// Most peers per torrent; 0 = librqbit's default.
     peer_limit: u32,
+    /// Peer connection encryption (MSE): "preferred", "required" or "off".
+    encryption: String,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -109,6 +111,7 @@ impl Default for Settings {
             blocklist_url: String::new(),
             extra_trackers: String::new(),
             peer_limit: 0,
+            encryption: "preferred".into(),
         }
     }
 }
@@ -970,10 +973,14 @@ pub fn run() {
                 } else {
                     Some(settings.bind_device.trim().to_string())
                 },
-                // Prefer encrypted (MSE) peer connections, falling back to
-                // plaintext — lets us talk to private-tracker peers that
-                // require encryption while still reaching plaintext public peers.
-                mse_mode: MseMode::Enabled,
+                // Preferred tries encrypted (MSE) connections and falls back to
+                // plaintext: peers that require encryption (common on private
+                // trackers) and plaintext public peers both stay reachable.
+                mse_mode: match settings.encryption.as_str() {
+                    "required" => MseMode::Forced,
+                    "off" => MseMode::Disabled,
+                    _ => MseMode::Enabled,
+                },
                 // Accept incoming peer connections so we can actually seed:
                 // without a listener, peers can't reach us and the ratio never
                 // moves once a torrent finishes. UPnP opens the port on the
