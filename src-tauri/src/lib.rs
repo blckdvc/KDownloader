@@ -75,6 +75,14 @@ struct Settings {
     /// "en0". Fixes UPnP when VPN/tunnel (utun) interfaces hijack multicast.
     /// Empty = let the OS choose (default).
     bind_device: String,
+    /// socks5://[user:password@]host:port for outgoing peer connections.
+    proxy_url: String,
+    /// A P2P/eMule IP block list (http(s) or file URL, gzip allowed).
+    blocklist_url: String,
+    /// Trackers added to every public torrent, one URL per line.
+    extra_trackers: String,
+    /// Most peers per torrent; 0 = librqbit's default.
+    peer_limit: u32,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -97,6 +105,10 @@ impl Default for Settings {
             upnp_enabled: true,
             utp_enabled: false,
             bind_device: String::new(),
+            proxy_url: String::new(),
+            blocklist_url: String::new(),
+            extra_trackers: String::new(),
+            peer_limit: 0,
         }
     }
 }
@@ -117,6 +129,12 @@ struct TMeta {
     tracker_seeds: Option<u64>,
     #[serde(default)]
     tracker_peers: Option<u64>,
+    /// This torrent's own limits in KiB/s; 0 = none. librqbit doesn't keep
+    /// them across restarts, so they're applied again at launch.
+    #[serde(default)]
+    down_kbps: u32,
+    #[serde(default)]
+    up_kbps: u32,
 }
 
 // ---------------------------------------------------------------------------
@@ -163,6 +181,26 @@ fn kbps_to_bps(kbps: u32) -> Option<NonZeroU32> {
     NonZeroU32::new(kbps.saturating_mul(1024))
 }
 
+fn set_torrent_limits_on(handle: &librqbit::ManagedTorrent, down_kbps: u32, up_kbps: u32) {
+    let limits = &handle.shared().ratelimits;
+    limits.set_download_bps(kbps_to_bps(down_kbps));
+    limits.set_upload_bps(kbps_to_bps(up_kbps));
+}
+
+/// Sets one torrent's own speed limits, in KiB/s; 0 removes a limit.
+#[tauri::command]
+async fn set_torrent_limits(state: State<'_, Shared>, id: u64, down_kbps: u32, up_kbps: u32) -> Result<(), String> {
+    let handle = state.session.get((id as usize).into()).ok_or_else(|| "torrent not found".to_string())?;
+    set_torrent_limits_on(&handle, down_kbps, up_kbps);
+    {
+        let mut m = state.meta.lock().map_err(|_| "lock".to_string())?;
+        let e = m.entry(hash_hex(&handle)).or_default();
+        (e.down_kbps, e.up_kbps) = (down_kbps, up_kbps);
+    }
+    state.save_meta();
+    Ok(())
+}
+
 fn hash_hex(h: &Arc<librqbit::ManagedTorrent>) -> String {
     format!("{:?}", h.info_hash())
 }
@@ -207,6 +245,20 @@ impl Shared {
             );
         }
     }
+    /// Puts back each torrent's own limits, which librqbit forgets on restart.
+    fn apply_torrent_limits(&self) {
+        let Ok(meta) = self.meta.lock() else { return };
+        self.session.with_torrents(|it| {
+            for (_, handle) in it {
+                if let Some(m) = meta.get(&hash_hex(handle)) {
+                    if m.down_kbps > 0 || m.up_kbps > 0 {
+                        set_torrent_limits_on(handle, m.down_kbps, m.up_kbps);
+                    }
+                }
+            }
+        });
+    }
+
     fn save_meta(&self) {
         // Written after the lock is released: list_torrents needs it every second.
         // meta_saving keeps an older copy from landing after a newer one.
@@ -257,6 +309,10 @@ impl Shared {
             let e = m.entry(hash).or_default();
             if !o.category.is_empty() {
                 e.category = o.category.clone();
+            }
+            if o.down_kbps > 0 || o.up_kbps > 0 {
+                (e.down_kbps, e.up_kbps) = (o.down_kbps, o.up_kbps);
+                set_torrent_limits_on(&handle, o.down_kbps, o.up_kbps);
             }
         }
         self.save_meta();
@@ -426,6 +482,8 @@ async fn list_torrents(state: State<'_, Shared>) -> Result<Vec<Value>, String> {
                 "stats": stats_json,
                 "tracker_seeds": swarm.map(|s| s.0).or(m.tracker_seeds),
                 "tracker_peers": swarm.map(|s| s.1).or(m.tracker_peers),
+                "down_kbps": m.down_kbps,
+                "up_kbps": m.up_kbps,
             }));
         }
         v
@@ -892,7 +950,12 @@ pub fn run() {
             };
 
             // Session with fastresume + on-disk persistence so torrents resume.
-            let session_opts = |with_listener: bool| {
+            let proxy_url = Some(settings.proxy_url.trim().to_string()).filter(|u| !u.is_empty());
+            let blocklist_url = Some(settings.blocklist_url.trim().to_string()).filter(|u| !u.is_empty());
+            // Session-wide trackers: librqbit leaves private torrents to their own.
+            let extra_trackers: HashSet<reqwest::Url> =
+                settings.extra_trackers.lines().filter_map(|l| reqwest::Url::parse(l.trim()).ok()).collect();
+            let session_opts = |with_listener: bool, with_extras: bool| {
                 let mut opts = SessionOptions {
                 fastresume: true,
                 persistence: Some(SessionPersistenceConfig::Json {
@@ -930,20 +993,40 @@ pub fn run() {
                     enable_upnp_port_forwarding: false,
                     ..Default::default()
                 }),
+                trackers: extra_trackers.clone(),
+                peer_limit: Some(settings.peer_limit as usize).filter(|&n| n > 0),
                 ..Default::default()
                 };
+                // A proxy or block list that fails stops the whole session from
+                // starting, so a retry goes without them.
+                if with_extras {
+                    opts.connect = proxy_url.clone().map(|proxy_url| librqbit::ConnectionOptions {
+                        proxy_url: Some(proxy_url),
+                        ..Default::default()
+                    });
+                    opts.blocklist_url = blocklist_url.clone();
+                }
                 if !with_listener {
                     opts.listen = None;
                 }
                 opts
             };
             let open_session = |opts| tauri::async_runtime::block_on(Session::new_with_opts(dl.clone(), opts));
-            let session = match open_session(session_opts(true)) {
+            let has_extras = proxy_url.is_some() || blocklist_url.is_some();
+            let mut opened = open_session(session_opts(true, true));
+            if let (Err(e), true) = (&opened, has_extras) {
+                let e = format!("{e:#}");
+                if e.contains("blocklist") || e.contains("proxy") || e.contains("stream connector") {
+                    notices.push(format!("KDownloader started without its proxy and IP block list: {e}. Check them in Settings."));
+                    opened = open_session(session_opts(true, false));
+                }
+            }
+            let session = match opened {
                 Ok(session) => session,
                 // Usually the port is taken. Downloads still work, just without incoming peers.
                 Err(e) => {
                     notices.push(format!("KDownloader can't accept incoming peers: {e:#}. Check the port in Settings."));
-                    open_session(session_opts(false))?
+                    open_session(session_opts(false, has_extras)).or_else(|_| open_session(session_opts(false, false)))?
                 }
             };
 
@@ -963,6 +1046,7 @@ pub fn run() {
                 last_up: Arc::new(Mutex::new(HashMap::new())),
             };
             shared.apply_limits();
+            shared.apply_torrent_limits();
             app.manage(shared.clone());
 
             // Background workers.
@@ -1003,6 +1087,7 @@ pub fn run() {
             set_files,
             set_category,
             set_tags,
+            set_torrent_limits,
             list_peers,
             list_trackers,
             pause_torrent,

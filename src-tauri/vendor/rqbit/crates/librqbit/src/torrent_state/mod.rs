@@ -40,7 +40,6 @@ use tracing::warn;
 use crate::Session;
 use crate::chunk_tracker::ChunkTracker;
 use crate::file_info::FileInfo;
-use crate::limits::LimitsConfig;
 use crate::session::TorrentId;
 use crate::spawn_utils::BlockingSpawner;
 use crate::storage::BoxStorageFactory;
@@ -115,7 +114,6 @@ pub(crate) struct ManagedTorrentOptions {
     pub mse_mode: crate::mse::MseMode,
     pub allow_overwrite: bool,
     pub output_folder: PathBuf,
-    pub ratelimits: LimitsConfig,
     pub initial_peers: Vec<SocketAddr>,
     pub peer_limit: Option<usize>,
     #[cfg(feature = "disable-upload")]
@@ -195,6 +193,10 @@ pub struct ManagedTorrentShared {
     pub(crate) magnet_name: Option<String>,
 
     pub(crate) client_name_and_version: String,
+
+    /// KDownloader: this torrent's own speed limits, kept across pause and
+    /// resume and changeable while it runs.
+    pub ratelimits: Arc<crate::limits::Limits>,
 }
 
 impl ManagedTorrentShared {
