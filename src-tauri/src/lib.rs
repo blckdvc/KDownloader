@@ -3,6 +3,7 @@ mod direct;
 mod dock;
 #[cfg(target_os = "macos")]
 mod handler;
+mod menu;
 mod migrate;
 mod rss;
 mod upnp;
@@ -741,6 +742,21 @@ fn download_dir(state: State<'_, Shared>) -> String {
         .unwrap_or_default()
 }
 
+/// Opens a picker for .torrent files and returns their contents.
+#[tauri::command]
+async fn pick_torrent_files(app: tauri::AppHandle) -> Result<Vec<Vec<u8>>, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog().file().add_filter("Torrent", &["torrent"]).pick_files(move |picked| {
+        let _ = tx.send(picked.unwrap_or_default());
+    });
+    let paths = rx.await.unwrap_or_default();
+    paths
+        .into_iter()
+        .filter_map(|p| p.into_path().ok())
+        .map(|p| std::fs::read(&p).map_err(|e| format!("{}: {e}", p.display())))
+        .collect()
+}
+
 /// Open a native folder picker and return the chosen path (None if cancelled).
 #[tauri::command]
 async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
@@ -873,6 +889,10 @@ fn open_file_limit_leaves_the_256_default_behind() {
 pub fn run() {
     migrate::run();
     tauri::Builder::default()
+        .menu(menu::build)
+        .on_menu_event(|app, event| {
+            let _ = tauri::Emitter::emit(app, "menu", event.id().as_ref());
+        })
         // Both copies of the app share one session and port: focus the running one.
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(window) = app.get_webview_window("main") {
@@ -1107,6 +1127,7 @@ pub fn run() {
             set_download_dir,
             reveal_path,
             pick_folder,
+            pick_torrent_files,
             direct::dd_grab,
             direct::dd_add,
             direct::dd_list_unchecked,

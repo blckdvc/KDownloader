@@ -27,12 +27,14 @@ try { grabbed = JSON.parse(localStorage.getItem(GRABBED_KEY) || "[]"); } catch (
 let settings = null;
 let selectedIds = new Set();
 let anchorId = null;
+let cursorId = null; // where the arrow keys move from; ⇧ extends from anchorId
 let statusFilter = "all";
 let packageFilter = "";
 let grabberOpen = false;
 // Link Grabber rows select like the queue (click, ⌘, ⇧, ⌘A, arrows), keyed by URL.
 let grabSel = new Set();
 let grabAnchor = null;
+let grabCursor = null;
 let sort = { col: "queue", dir: 1 }; // queue order until a column is clicked
 let rmTarget = null;
 let errorTimer;
@@ -324,7 +326,7 @@ function selectRows(ids) {
 }
 
 function select(id) {
-  anchorId = id;
+  anchorId = cursorId = id;
   selectRows([id]);
 }
 
@@ -334,6 +336,7 @@ function pickRow(id, e) {
   const picked = nextSelection(selectedIds, rowOrder(), anchorId, id, e);
   if (!picked) { select(id); return; }
   if (e.metaKey || e.ctrlKey) anchorId = id;
+  cursorId = id;
   selectRows(picked);
 }
 
@@ -384,34 +387,34 @@ $("tbody").addEventListener("contextmenu", (e) => {
   const entries = [];
   if (picked.length > 1) {
     const n = picked.length;
-    if (picked.some(resumable)) entries.push({ label: `▶ Resume ${n} downloads`, act: () => forEach("dd_resume", picked.filter(resumable)) });
-    if (picked.some(pausable)) entries.push({ label: `⏸ Pause ${n} downloads`, act: () => forEach("dd_pause", picked.filter(pausable)) });
+    if (picked.some(resumable)) entries.push({ key: "⌘/", label: `▶ Resume ${n} downloads`, act: () => forEach("dd_resume", picked.filter(resumable)) });
+    if (picked.some(pausable)) entries.push({ key: "⌘.", label: `⏸ Pause ${n} downloads`, act: () => forEach("dd_pause", picked.filter(pausable)) });
     entries.push(
-      { label: `⤒ Move ${n} downloads to top`, act: () => call("dd_move", { ids, toTop: true }).then(refresh) },
-      { label: `⤓ Move ${n} downloads to bottom`, act: () => call("dd_move", { ids, toTop: false }).then(refresh) },
+      { key: "⌥⌘↑", label: `⤒ Move ${n} downloads to top`, act: () => call("dd_move", { ids, toTop: true }).then(refresh) },
+      { key: "⌥⌘↓", label: `⤓ Move ${n} downloads to bottom`, act: () => call("dd_move", { ids, toTop: false }).then(refresh) },
       { label: "📋 Copy links", act: () => { try { navigator.clipboard.writeText(picked.map((i) => i.url).join("\n")); } catch (_) {} } },
       { sep: true },
-      { label: `✕ Remove ${n} downloads (keep files)`, act: () => removeNow(ids, false) },
-      { label: `🗑 Remove ${n} downloads + move files to Trash`, danger: true, act: () => confirmTrash(ids) },
+      { key: "⌫", label: `✕ Remove ${n} downloads (keep files)`, act: () => removeNow(ids, false) },
+      { key: "⌥⌘⌫", label: `🗑 Remove ${n} downloads + move files to Trash`, danger: true, act: () => confirmTrash(ids) },
     );
   } else {
   if (needsExtraction(item)) {
     entries.push({ label: "↻ Retry extraction", act: () => call("dd_retry_extraction", { id }).then(refresh) });
   }
   if (resumable(item)) {
-    entries.push({ label: item.status === "failed" ? "▶ Retry" : "▶ Resume", act: () => call("dd_resume", { id }).then(refresh) });
+    entries.push({ key: "⌘/", label: item.status === "failed" ? "▶ Retry" : "▶ Resume", act: () => call("dd_resume", { id }).then(refresh) });
   }
   if (pausable(item)) {
-    entries.push({ label: "⏸ Pause", act: () => call("dd_pause", { id }).then(refresh) });
+    entries.push({ key: "⌘.", label: "⏸ Pause", act: () => call("dd_pause", { id }).then(refresh) });
   }
   entries.push(
-    { label: "⤒ Move to top of queue", act: () => call("dd_move", { ids: [id], toTop: true }).then(refresh) },
-    { label: "⤓ Move to bottom of queue", act: () => call("dd_move", { ids: [id], toTop: false }).then(refresh) },
-    { label: "📂 Show in Finder", act: () => reveal(item) },
+    { key: "⌥⌘↑", label: "⤒ Move to top of queue", act: () => call("dd_move", { ids: [id], toTop: true }).then(refresh) },
+    { key: "⌥⌘↓", label: "⤓ Move to bottom of queue", act: () => call("dd_move", { ids: [id], toTop: false }).then(refresh) },
+    { key: "⌘R", label: "📂 Show in Finder", act: () => reveal(item) },
     { label: "📋 Copy link", act: () => { try { navigator.clipboard.writeText(item.url); } catch (_) {} } },
     { sep: true },
-    { label: "✕ Remove (keep files)", act: () => removeNow([id], false) },
-    { label: "🗑 Remove + move files to Trash", danger: true, act: () => confirmTrash([id]) },
+    { key: "⌫", label: "✕ Remove (keep files)", act: () => removeNow([id], false) },
+    { key: "⌥⌘⌫", label: "🗑 Remove + move files to Trash", danger: true, act: () => confirmTrash([id]) },
   );
   }
   showContextMenu(e, entries);
@@ -468,7 +471,14 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (grabberOpen) {
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+    const target = listTarget(e, grabOrder(), grabCursor);
+    if (target !== undefined) {
+      e.preventDefault();
+      grabCursor = target;
+      if (!e.shiftKey) grabAnchor = target;
+      selectGrabbed(e.shiftKey ? rangeTo(grabOrder(), grabAnchor, target) : [target]);
+      document.querySelector(`#dd-grabbed tr:nth-child(${grabOrder().indexOf(target) + 1})`)?.scrollIntoView({ block: "nearest" });
+    } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
       e.preventDefault();
       selectGrabbed(grabOrder());
     } else if ((e.key === "Delete" || e.key === "Backspace") && grabSel.size) {
@@ -477,35 +487,67 @@ document.addEventListener("keydown", (e) => {
     } else if (e.key === "Enter" && grabSel.size) {
       e.preventDefault();
       addGrabbed(pickedGrabbed());
-    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      const order = grabOrder();
-      if (!order.length) return;
-      e.preventDefault();
-      let i = order.indexOf(grabAnchor);
-      i = i === -1 ? 0 : e.key === "ArrowDown" ? Math.min(order.length - 1, i + 1) : Math.max(0, i - 1);
-      grabAnchor = order[i];
-      selectGrabbed([order[i]]);
-      document.querySelector(`#dd-grabbed tr:nth-child(${i + 1})`)?.scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Escape") {
+      if (!contextMenu.hidden) hideCtx(true);
+      else selectGrabbed([]);
     }
     return;
   }
 
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+  const target = listTarget(e, rowOrder(), cursorId);
+  if (target !== undefined) {
+    e.preventDefault();
+    cursorId = target;
+    if (e.shiftKey) selectRows(rangeTo(rowOrder(), anchorId, target));
+    else select(target);
+    document.querySelector(`#dd-tbody tr[data-id="${target}"]`)?.scrollIntoView({ block: "nearest" });
+  } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
     e.preventDefault();
     selectRows(rowOrder());
   } else if (e.key === "Delete" || e.key === "Backspace") {
     if (!selectedIds.size) return;
     e.preventDefault();
-    openRemoveModal();
-  } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-    const order = rowOrder();
-    if (!order.length) return;
+    if (e.altKey && e.metaKey) confirmTrash([...selectedIds]);
+    else openRemoveModal();
+  } else if (e.key === " ") {
     e.preventDefault();
-    let i = order.indexOf(anchorId);
-    i = i === -1 ? 0 : e.key === "ArrowDown" ? Math.min(order.length - 1, i + 1) : Math.max(0, i - 1);
-    select(order[i]);
-    document.querySelector(`#dd-tbody tr[data-id="${order[i]}"]`)?.scrollIntoView({ block: "nearest" });
+    toggleSelected();
+  } else if (e.key === "Enter") {
+    const item = items.find((i) => i.id === cursorId) || selectedItems()[0];
+    if (!item) return;
+    e.preventDefault();
+    reveal(item);
+  } else if (e.key === "Escape") {
+    if (!contextMenu.hidden) hideCtx(true);
+    else selectRows([]);
   }
+});
+
+// Space pauses the selection when any of it runs, and resumes it otherwise.
+function toggleSelected() {
+  const picked = selectedItems();
+  if (picked.some(pausable)) forEach("dd_pause", picked.filter(pausable));
+  else forEach("dd_resume", picked.filter(resumable));
+}
+const moveSelected = (toTop) => selectedIds.size && call("dd_move", { ids: [...selectedIds], toTop }).then(refresh);
+onMenu("direct", {
+  resume: () => forEach("dd_resume", selectedItems().filter(resumable)),
+  pause: () => forEach("dd_pause", selectedItems().filter(pausable)),
+  "resume-all": () => call("dd_resume_all").then(refresh),
+  "pause-all": () => call("dd_pause_all").then(refresh),
+  reveal: () => { const item = items.find((i) => i.id === cursorId) || selectedItems()[0]; if (item) reveal(item); },
+  "move-top": () => moveSelected(true),
+  "move-bottom": () => moveSelected(false),
+  remove: () => (grabberOpen ? removeGrabbed() : openRemoveModal()),
+  "remove-trash": () => (grabberOpen ? removeGrabbed() : selectedIds.size && confirmTrash([...selectedIds])),
+  settings: () => $("settings-btn").click(),
+  "add-links": () => $("links").focus(),
+});
+onMenu("any", {
+  "tab-torrent": () => showApp("torrent"),
+  "tab-direct": () => { showApp("direct"); openGrabber(false); },
+  "link-grabber": () => { showApp("direct"); openGrabber(true); },
+  "tab-bandwidth": () => showApp("bandwidth"),
 });
 
 // ---- link grabber ----------------------------------------------------------
@@ -553,6 +595,7 @@ const grabOrder = () => grabbed.map((p) => p.url);
 function pickGrabbed(url, e) {
   const picked = nextSelection(grabSel, grabOrder(), grabAnchor, url, e);
   if (!picked || e.metaKey || e.ctrlKey) grabAnchor = url;
+  grabCursor = url;
   selectGrabbed(picked || [url]);
 }
 const openPage = (p) => call(p.protected ? "dd_open_captcha" : "dd_open_url", { url: p.url });
@@ -602,12 +645,12 @@ $("grabbed").addEventListener("contextmenu", (e) => {
   const n = picked.length, addable = picked.filter(canAdd).length;
   const one = n === 1 ? picked[0] : null;
   const entries = [];
-  if (addable) entries.push({ label: n === 1 ? "▶ Add to queue" : `▶ Add ${addable} link${addable > 1 ? "s" : ""} to queue`, act: () => addGrabbed(picked) });
+  if (addable) entries.push({ key: "↩", label: n === 1 ? "▶ Add to queue" : `▶ Add ${addable} link${addable > 1 ? "s" : ""} to queue`, act: () => addGrabbed(picked) });
   if (one?.page) entries.push({ label: one.protected ? "🧩 Solve captcha" : "🌐 Open in browser", act: () => openPage(one) });
   entries.push(
     { label: n === 1 ? "📋 Copy link" : "📋 Copy links", act: () => { try { navigator.clipboard.writeText(picked.map((p) => p.url).join("\n")); } catch (_) {} } },
     { sep: true },
-    { label: n === 1 ? "✕ Remove from list" : `✕ Remove ${n} links from list`, danger: true, act: () => removeGrabbed(picked) },
+    { key: "⌫", label: n === 1 ? "✕ Remove from list" : `✕ Remove ${n} links from list`, danger: true, act: () => removeGrabbed(picked) },
   );
   showContextMenu(e, entries);
 });
