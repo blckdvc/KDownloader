@@ -151,10 +151,10 @@ function hideCtx(force) {
 document.addEventListener("click", () => hideCtx());
 window.addEventListener("blur", () => hideCtx(true));
 
-// entries: [{ label, act, danger }] or { sep: true }.
+// entries: [{ label, act, danger, key }] or { sep: true }; key is the shortcut shown.
 function showContextMenu(e, entries) {
   contextMenu.innerHTML = entries
-    .map((it, i) => (it.sep ? '<div class="ctx-sep"></div>' : `<div class="ctx-item${it.danger ? " danger" : ""}" data-i="${i}">${it.label}</div>`))
+    .map((it, i) => (it.sep ? '<div class="ctx-sep"></div>' : `<div class="ctx-item${it.danger ? " danger" : ""}" data-i="${i}"><span>${it.label}</span>${it.key ? `<kbd>${it.key}</kbd>` : ""}</div>`))
     .join("");
   contextMenu.hidden = false;
   contextShownAt = performance.now();
@@ -166,3 +166,59 @@ function showContextMenu(e, entries) {
     entries[Number(el.dataset.i)].act?.();
   }));
 }
+
+// ---- menu bar and keyboard ---------------------------------------------------
+// Menu bar commands arrive as "menu" events and run on the tab in front;
+// "any" handlers work from every tab.
+const menuHandlers = { torrent: {}, direct: {}, bandwidth: {}, any: {} };
+function onMenu(scope, handlers) { Object.assign(menuHandlers[scope], handlers); }
+const frontTab = () => ["torrent", "direct", "bandwidth"].find((t) => !document.getElementById(`view-${t}`).hidden);
+const dialogOpen = () => [...document.querySelectorAll(".overlay")].some((o) => !o.hidden);
+function runMenu(id) {
+  // A dialog takes the keyboard: commands behind it would act out of sight.
+  if (dialogOpen() && id !== "about" && id !== "shortcuts") return;
+  (menuHandlers[frontTab()][id] || menuHandlers.any[id])?.();
+}
+window.__TAURI__.event.listen("menu", (event) => runMenu(event.payload));
+
+// The row a key moves to from `cursor`, or undefined for keys that don't move.
+function listTarget(e, order, cursor) {
+  if (!order.length) return undefined;
+  const page = 10, last = order.length - 1;
+  let i = order.indexOf(cursor);
+  switch (e.key) {
+    case "ArrowDown": i = i === -1 ? 0 : Math.min(last, i + 1); break;
+    case "ArrowUp": i = i === -1 ? 0 : Math.max(0, i - 1); break;
+    case "PageDown": i = i === -1 ? 0 : Math.min(last, i + page); break;
+    case "PageUp": i = i === -1 ? 0 : Math.max(0, i - page); break;
+    case "Home": i = 0; break;
+    case "End": i = last; break;
+    default: return undefined;
+  }
+  return order[i];
+}
+// Rows from the anchor to `to`, for ⇧ with the arrow keys.
+function rangeTo(order, anchor, to) {
+  const a = order.indexOf(anchor), b = order.indexOf(to);
+  return a === -1 ? [to] : order.slice(Math.min(a, b), Math.max(a, b) + 1);
+}
+const typingIn = (target) => {
+  const tag = (target.tagName || "").toLowerCase();
+  return tag === "input" || tag === "textarea" || tag === "select" || target.isContentEditable;
+};
+
+// "?" shows every shortcut, as does Help ▸ Keyboard Shortcuts.
+function showShortcuts() {
+  document.getElementById("keys-modal").hidden = false;
+  document.getElementById("keys-close").focus();
+}
+document.getElementById("keys-close").addEventListener("click", () => (document.getElementById("keys-modal").hidden = true));
+document.addEventListener("keydown", (e) => {
+  const sheet = document.getElementById("keys-modal");
+  if (!sheet.hidden && (e.key === "Escape" || e.key === "Enter")) { e.preventDefault(); sheet.hidden = true; return; }
+  if (e.key === "?" && !typingIn(e.target) && !dialogOpen()) { e.preventDefault(); showShortcuts(); }
+});
+onMenu("any", {
+  shortcuts: showShortcuts,
+  options: () => showOptions(document.getElementById("opts").hidden),
+});
