@@ -361,6 +361,23 @@
             <p class="hint">Needed to seed: peers connect to you on this port. Takes effect after you restart KDownloader. If your router blocks UPnP, forward this port (TCP&nbsp;+&nbsp;UDP) to this Mac. µTP adds UDP peers but may lose packets at high speed on macOS. <b>Bind to interface</b>: if you run a VPN/Private Relay (many <code>utun</code> interfaces), UPnP discovery can fail — set your LAN interface (e.g. <code>en0</code>) to force it through your router.</p>
           </section>
           <section class="group">
+            <h3>Peers and privacy</h3>
+            <label>SOCKS5 proxy <input id="s-proxy" type="text" placeholder="socks5://user:password@host:1080" /></label>
+            <label>IP block list <input id="s-blocklist" type="text" placeholder="https://… or file:///… (P2P or eMule format, .gz allowed)" /></label>
+            <div class="grid2">
+              <label>Max peers per torrent <input id="s-peers" type="number" min="0" class="narrow" placeholder="0" /></label>
+              <label class="select-field">Encryption
+                <select id="s-encryption">
+                  <option value="preferred">Preferred: encrypt when the peer can</option>
+                  <option value="required">Required: only encrypted peers</option>
+                  <option value="off">Off: never encrypt</option>
+                </select>
+              </label>
+            </div>
+            <label>Trackers added to every public torrent, one per line <textarea id="s-trackers" class="trackers" rows="3" placeholder="udp://tracker.opentrackr.org:1337/announce"></textarea></label>
+            <p class="hint">Take effect after you restart KDownloader. The proxy carries connections to peers, not to trackers or the DHT. Peers in the block list can't connect either way. Private torrents never get the extra trackers. 0 peers keeps the default. Encryption hides BitTorrent traffic from providers that slow it down; it doesn't hide your IP address. Required loses the peers that can't encrypt.</p>
+          </section>
+          <section class="group">
             <h3><label class="chk"><input id="s-sched" type="checkbox" /> Scheduler — alternate limits during a window</label></h3>
             <div class="grid4">
               <label>From <input id="s-from" type="time" /></label>
@@ -391,6 +408,22 @@
           <button id="rm-cancel" class="ghost">Cancel</button>
           <button id="rm-keep">Remove, keep files</button>
           <button id="rm-del" class="danger">Remove + move files to Trash</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="tl-modal" class="overlay" hidden>
+      <div class="sheet small">
+        <div class="sheet-head"><h2>Speed limits</h2></div>
+        <div class="sheet-body"><p id="tl-name" class="muted"></p>
+          <div class="group grid2">
+            <label>↓ Download, KiB/s <input id="tl-down" type="number" min="0" placeholder="no limit" /></label>
+            <label>↑ Upload, KiB/s <input id="tl-up" type="number" min="0" placeholder="no limit" /></label>
+          </div>
+          <p class="hint">For these torrents only, on top of the global limits. Empty or 0 means no limit of their own.</p></div>
+        <div class="sheet-foot">
+          <button id="tl-cancel" class="ghost">Cancel</button>
+          <button id="tl-ok" class="primary">Apply</button>
         </div>
       </div>
     </div>

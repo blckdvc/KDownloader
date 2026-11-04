@@ -313,6 +313,7 @@ $("tbody").addEventListener("contextmenu", (e) => {
     { label: `▶ Resume ${ids.length} torrents`, act: () => forSelected("resume_torrent", pickedIds(canResume, ids)) },
     { label: `⏸ Pause ${ids.length} torrents`, act: () => forSelected("pause_torrent", pickedIds(canPause, ids)) },
     { label: `📡 Force re-announce ${ids.length} torrents`, act: () => forSelected("reannounce", ids) },
+    { label: `⚡ Speed limits for ${ids.length} torrents…`, act: () => openTorrentLimits(ids) },
     { sep: true },
     { label: `✕ Remove ${ids.length} torrents (keep files)`, act: () => removeNow(ids, false) },
     { label: `🗑 Remove ${ids.length} torrents + move files to Trash`, danger: true, act: () => confirmTrash(ids) },
@@ -321,6 +322,7 @@ $("tbody").addEventListener("contextmenu", (e) => {
       ? { label: metrics(t).st.error ? "▶ Resume (downloads what's missing)" : "▶ Resume", act: () => invoke("resume_torrent", { id }).then(refresh).catch(showError) }
       : { label: "⏸ Pause", act: () => invoke("pause_torrent", { id }).then(refresh).catch(showError) },
     { label: "📡 Force re-announce (reconnect peers)", act: () => invoke("reannounce", { id }).then(refresh).catch(showError) },
+    { label: `⚡ Speed limits…${t.down_kbps || t.up_kbps ? ` (${limitText(t)})` : ""}`, act: () => openTorrentLimits([id]) },
     { label: "📂 Open destination folder", act: () => t.output_folder && invoke("reveal_path", { path: t.output_folder }).catch(showError) },
     { label: "ⓘ Details / category…", act: () => { selectTorrent(id); showDetails(true); } },
     { sep: true },
@@ -330,6 +332,32 @@ $("tbody").addEventListener("contextmenu", (e) => {
     { label: "🗑 Remove + move files to Trash", danger: true, act: () => confirmTrash([id]) },
   ];
   showContextMenu(e, items);
+});
+
+// ---- per-torrent speed limits -------------------------------------------
+const limitText = (t) => [t.down_kbps && `↓ ${t.down_kbps}`, t.up_kbps && `↑ ${t.up_kbps}`].filter(Boolean).join(" ") + " KiB/s";
+let tlTarget = null;
+function openTorrentLimits(ids) {
+  const picked = torrents.filter((t) => ids.includes(t.id)); if (!picked.length) return;
+  tlTarget = picked.map((t) => t.id);
+  // Several torrents show their shared values, or nothing when they differ.
+  const same = (key) => (picked.every((t) => t[key] === picked[0][key]) ? picked[0][key] || "" : "");
+  $("tl-name").textContent = picked.length === 1 ? picked[0].name : `${picked.length} torrents`;
+  $("tl-down").value = same("down_kbps"); $("tl-up").value = same("up_kbps");
+  $("tl-modal").hidden = false;
+  setTimeout(() => $("tl-down").focus());
+}
+async function applyTorrentLimits() {
+  const ids = tlTarget; tlTarget = null; $("tl-modal").hidden = true;
+  if (!ids) return;
+  const downKbps = num("tl-down"), upKbps = num("tl-up");
+  try { await Promise.all(ids.map((id) => invoke("set_torrent_limits", { id, downKbps, upKbps }))); await refresh(); } catch (e) { showError(e); }
+}
+$("tl-ok").addEventListener("click", applyTorrentLimits);
+$("tl-cancel").addEventListener("click", () => { $("tl-modal").hidden = true; tlTarget = null; });
+$("tl-modal").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); applyTorrentLimits(); }
+  else if (e.key === "Escape") { e.preventDefault(); $("tl-modal").hidden = true; tlTarget = null; }
 });
 
 // ---- keyboard ------------------------------------------------------------
@@ -435,6 +463,7 @@ function renderGeneral() {
     <dt>Category</dt><dd>${esc(t.category) || "—"}</dd>
     <dt>Tags</dt><dd>${(t.tags || []).map(esc).join(", ") || "—"}</dd>
     <dt>Save path</dt><dd>${esc(t.output_folder)}</dd>
+    <dt>Own limits</dt><dd>${t.down_kbps || t.up_kbps ? limitText(t) : "none"}</dd>
     <dt>Info hash</dt><dd>${esc(t.info_hash)}</dd>
   </dl>`);
 }
@@ -525,6 +554,7 @@ function openSettings() {
   $("s-watch").checked = !!s.watch_enabled; $("s-watchdir").value = s.watch_dir || ""; $("s-watchcat").value = s.watch_category || "";
   $("s-rss").checked = !!s.rss_enabled; $("s-rssint").value = s.rss_interval_min ?? 15;
   $("s-port").value = s.listen_port ?? 51413; $("s-upnp").checked = s.upnp_enabled ?? true; $("s-utp").checked = !!s.utp_enabled; $("s-bind").value = s.bind_device || "";
+  $("s-proxy").value = s.proxy_url || ""; $("s-blocklist").value = s.blocklist_url || ""; $("s-peers").value = s.peer_limit || ""; $("s-trackers").value = s.extra_trackers || ""; $("s-encryption").value = s.encryption || "preferred";
   const fe = $("feeds"); fe.innerHTML = ""; (s.feeds || []).forEach((f) => fe.appendChild(feedRow(f)));
   $("modal").hidden = false;
 }
@@ -541,11 +571,13 @@ async function saveSettings() {
     watch_enabled: $("s-watch").checked, watch_dir: val("s-watchdir"), watch_category: val("s-watchcat"),
     rss_enabled: $("s-rss").checked, rss_interval_min: Math.max(1, num("s-rssint")), feeds,
     listen_port: Math.min(65535, Math.max(1, num("s-port") || 51413)), upnp_enabled: $("s-upnp").checked, utp_enabled: $("s-utp").checked, bind_device: val("s-bind"),
+    proxy_url: val("s-proxy"), blocklist_url: val("s-blocklist"), peer_limit: num("s-peers"), extra_trackers: $("s-trackers").value.trim(), encryption: $("s-encryption").value,
   };
-  const portChanged = settingsCache && (settings.listen_port !== settingsCache.listen_port || settings.upnp_enabled !== settingsCache.upnp_enabled || settings.utp_enabled !== settingsCache.utp_enabled || settings.bind_device !== settingsCache.bind_device);
+  const restartKeys = ["listen_port", "upnp_enabled", "utp_enabled", "bind_device", "proxy_url", "blocklist_url", "peer_limit", "extra_trackers", "encryption"];
+  const portChanged = settingsCache && restartKeys.some((k) => settings[k] !== settingsCache[k]);
   try {
     await invoke("save_settings", { settings }); settingsCache = settings; updateLimitsBadge(); updateDirLabel(); $("modal").hidden = true;
-    if (portChanged) showNotice("Network settings saved — restart KDownloader for the new port/UPnP to take effect.");
+    if (portChanged) showNotice("Network settings saved: restart KDownloader for them to take effect.");
   }
   catch (e) { showError(e); }
 }

@@ -13,5 +13,6 @@ KDownloader's patches, to reapply on any update:
 - `librqbit`: on start, a wanted file with downloaded pieces that has vanished puts the torrent in error instead of redownloading it.
 - `dht`: a failed UDP receive is logged and retried instead of ending the DHT for the whole session.
 - `librqbit`: `ManagedTorrent::stats_brief` is `stats` without the per-file progress.
+- `librqbit`: `ManagedTorrentShared::ratelimits` holds each torrent's limits, shared with its live state, so they can change while it runs and survive pause/resume.
 
 `desktop/src-tauri` is removed from the workspace members in `Cargo.toml`.
