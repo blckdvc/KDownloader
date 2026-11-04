@@ -30,6 +30,9 @@ let anchorId = null;
 let statusFilter = "all";
 let packageFilter = "";
 let grabberOpen = false;
+// Link Grabber rows select like the queue (click, ⌘, ⇧, ⌘A, arrows), keyed by URL.
+let grabSel = new Set();
+let grabAnchor = null;
 let sort = { col: "queue", dir: 1 }; // queue order until a column is clicked
 let rmTarget = null;
 let errorTimer;
@@ -160,7 +163,7 @@ async function start(found) {
 function grab(found) {
   for (const probe of found) {
     if (!grabbed.some((p) => p.url === probe.url)) {
-      grabbed.push({ ...probe, selected: probe.online && !probe.duplicate });
+      grabbed.push({ ...probe });
     }
   }
   renderGrabbed();
@@ -199,10 +202,11 @@ const resumable = (i) => ["paused", "failed", "waiting"].includes(i.status);
 const pausable = (i) => ["active", "queued", "waiting"].includes(i.status);
 
 function syncToolbar() {
+  // In the Link Grabber the toolbar's Remove takes links off the list.
   const picked = selectedItems();
   $("tb-resume").disabled = !picked.some(resumable);
   $("tb-pause").disabled = !picked.some(pausable);
-  $("tb-remove").disabled = !picked.length;
+  $("tb-remove").disabled = grabberOpen ? !grabSel.size : !picked.length;
 }
 
 async function forEach(command, list) {
@@ -212,7 +216,7 @@ async function forEach(command, list) {
 
 $("tb-resume").addEventListener("click", () => forEach("dd_resume", selectedItems().filter(resumable)));
 $("tb-pause").addEventListener("click", () => forEach("dd_pause", selectedItems().filter(pausable)));
-$("tb-remove").addEventListener("click", () => openRemoveModal());
+$("tb-remove").addEventListener("click", () => (grabberOpen ? removeGrabbed() : openRemoveModal()));
 $("start-all").addEventListener("click", () => call("dd_resume_all").then(refresh));
 $("pause-all").addEventListener("click", () => call("dd_pause_all").then(refresh));
 $("clear-done").addEventListener("click", () => call("dd_clear_done").then(refresh));
@@ -463,7 +467,28 @@ document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") $("modal").hidden = true;
     return;
   }
-  if (grabberOpen) return;
+  if (grabberOpen) {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+      e.preventDefault();
+      selectGrabbed(grabOrder());
+    } else if ((e.key === "Delete" || e.key === "Backspace") && grabSel.size) {
+      e.preventDefault();
+      removeGrabbed();
+    } else if (e.key === "Enter" && grabSel.size) {
+      e.preventDefault();
+      addGrabbed(pickedGrabbed());
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      const order = grabOrder();
+      if (!order.length) return;
+      e.preventDefault();
+      let i = order.indexOf(grabAnchor);
+      i = i === -1 ? 0 : e.key === "ArrowDown" ? Math.min(order.length - 1, i + 1) : Math.max(0, i - 1);
+      grabAnchor = order[i];
+      selectGrabbed([order[i]]);
+      document.querySelector(`#dd-grabbed tr:nth-child(${i + 1})`)?.scrollIntoView({ block: "nearest" });
+    }
+    return;
+  }
 
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
     e.preventDefault();
@@ -492,24 +517,25 @@ function grabbedStatus(p) {
   return p.resumable ? "Online" : "Online (no resume)";
 }
 
+const canAdd = (p) => p.online || p.unchecked;
+const pickedGrabbed = () => grabbed.filter((p) => grabSel.has(p.url));
+
 function renderGrabbed() {
+  grabSel = new Set([...grabSel].filter((url) => grabbed.some((p) => p.url === url)));
   $("grabbed").replaceChildren(...grabbed.map((p) => {
     const tr = document.createElement("tr");
-    tr.className = p.online ? "" : "s-error";
-    tr.innerHTML = `<td><input type="checkbox"></td><td class="col-name" title="${esc(p.url)}">${esc(p.name)}</td>
+    tr.dataset.url = p.url;
+    tr.className = `${p.online ? "" : "s-error"}${grabSel.has(p.url) ? " selected" : ""}`;
+    tr.innerHTML = `<td class="col-name" title="${esc(p.url)}">${esc(p.name)}</td>
       <td class="num">${sizeText(p.size)}</td><td class="dd-clip">${esc(p.package)}</td>
       <td class="dd-status"><span class="st" title="${esc(grabbedStatus(p))}">${esc(grabbedStatus(p))}</span></td>`;
     if (p.page) {
       const open = document.createElement("button");
       open.className = "link dd-open";
       open.textContent = p.protected ? "Solve captcha" : "Open in browser";
-      open.addEventListener("click", () => call(p.protected ? "dd_open_captcha" : "dd_open_url", { url: p.url }));
+      open.addEventListener("click", (e) => { e.stopPropagation(); openPage(p); });
       tr.lastElementChild.append(open);
     }
-    const check = tr.querySelector("input");
-    check.checked = p.selected;
-    check.disabled = !p.online;
-    check.addEventListener("change", () => { p.selected = check.checked; updateGrabButtons(); });
     return tr;
   }));
   $("grab-empty").style.display = grabbed.length ? "none" : "flex";
@@ -518,14 +544,34 @@ function renderGrabbed() {
   renderSidebar();
 }
 
+function selectGrabbed(urls) {
+  grabSel = new Set(urls);
+  document.querySelectorAll("#dd-grabbed tr").forEach((tr) => tr.classList.toggle("selected", grabSel.has(tr.dataset.url)));
+  updateGrabButtons();
+}
+const grabOrder = () => grabbed.map((p) => p.url);
+function pickGrabbed(url, e) {
+  const picked = nextSelection(grabSel, grabOrder(), grabAnchor, url, e);
+  if (!picked || e.metaKey || e.ctrlKey) grabAnchor = url;
+  selectGrabbed(picked || [url]);
+}
+const openPage = (p) => call(p.protected ? "dd_open_captcha" : "dd_open_url", { url: p.url });
+
 function updateGrabButtons() {
-  $("add-selected").disabled = !grabbed.some((p) => p.selected);
+  $("add-selected").disabled = !pickedGrabbed().some(canAdd);
+  $("add-all").disabled = !grabbed.some(canAdd);
   $("clear-grabbed").disabled = grabbed.length === 0;
+  syncToolbar();
+}
+function removeGrabbed(list = pickedGrabbed()) {
+  grabbed = grabbed.filter((p) => !list.includes(p));
+  renderGrabbed();
 }
 
-$("add-selected").addEventListener("click", async () => {
-  const chosen = grabbed.filter((p) => p.selected);
-  grabbed = grabbed.filter((p) => !p.selected);
+async function addGrabbed(list) {
+  const chosen = list.filter(canAdd);
+  if (!chosen.length) return;
+  grabbed = grabbed.filter((p) => !chosen.includes(p));
   const unchecked = chosen.filter((p) => p.unchecked);
   await call("dd_add", { probes: chosen.filter((p) => !p.unchecked), options: addOptions() });
   // Accepted links are only now sent to a debrid service.
@@ -534,9 +580,39 @@ $("add-selected").addEventListener("click", async () => {
     if (found) await start(found);
   }
   renderGrabbed();
-  openGrabber(false);
+  if (!grabbed.length) openGrabber(false);
   refresh();
+}
+
+$("grabbed").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-url]");
+  if (tr) pickGrabbed(tr.dataset.url, e);
 });
+$("grabbed").addEventListener("dblclick", (e) => {
+  const p = grabbed.find((g) => g.url === e.target.closest("tr[data-url]")?.dataset.url);
+  if (p && canAdd(p)) addGrabbed([p]);
+  else if (p?.page) openPage(p);
+});
+$("grabbed").addEventListener("contextmenu", (e) => {
+  const tr = e.target.closest("tr[data-url]");
+  if (!tr) return;
+  e.preventDefault();
+  if (!grabSel.has(tr.dataset.url)) { grabAnchor = tr.dataset.url; selectGrabbed([tr.dataset.url]); }
+  const picked = pickedGrabbed();
+  const n = picked.length, addable = picked.filter(canAdd).length;
+  const one = n === 1 ? picked[0] : null;
+  const entries = [];
+  if (addable) entries.push({ label: n === 1 ? "▶ Add to queue" : `▶ Add ${addable} link${addable > 1 ? "s" : ""} to queue`, act: () => addGrabbed(picked) });
+  if (one?.page) entries.push({ label: one.protected ? "🧩 Solve captcha" : "🌐 Open in browser", act: () => openPage(one) });
+  entries.push(
+    { label: n === 1 ? "📋 Copy link" : "📋 Copy links", act: () => { try { navigator.clipboard.writeText(picked.map((p) => p.url).join("\n")); } catch (_) {} } },
+    { sep: true },
+    { label: n === 1 ? "✕ Remove from list" : `✕ Remove ${n} links from list`, danger: true, act: () => removeGrabbed(picked) },
+  );
+  showContextMenu(e, entries);
+});
+$("add-selected").addEventListener("click", () => addGrabbed(pickedGrabbed()));
+$("add-all").addEventListener("click", () => addGrabbed(grabbed));
 $("clear-grabbed").addEventListener("click", () => { grabbed = []; renderGrabbed(); });
 
 // ---- settings --------------------------------------------------------------
