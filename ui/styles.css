@@ -183,7 +183,7 @@ code { background: var(--track); padding: 1px 5px; border-radius: 4px; font-size
 .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .hint { font-size: 11px; color: var(--muted); margin: 8px 0 0; }
 .feed { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin: 10px 0; display: flex; flex-direction: column; gap: 8px; }
-.feed textarea { min-height: 46px; resize: vertical; font-family: ui-monospace, monospace; }
+.feed textarea, textarea.trackers { min-height: 46px; resize: vertical; font-family: ui-monospace, monospace; }
 .feed .feed-head { display: flex; gap: 8px; } .feed .feed-head input { flex: 1; }
 
 @media (max-width: 620px) { .grid2, .grid4 { grid-template-columns: 1fr 1fr; } .sidebar { flex-basis: var(--sidebar-width); } :root { --sidebar-width: 140px; } }
@@ -227,7 +227,7 @@ code { background: var(--track); padding: 1px 5px; border-radius: 4px; font-size
 .dd-grid { margin-top: 12px; }
 .rm-remember { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
 .dd-removal { margin-top: 10px; }
-.dd-removal select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); }
+.dd-removal select, .select-field select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); }
 .dd-open { display: block; padding: 2px 0 0; }
 .dd-hint { margin: 0 0 8px; font-size: 12px; }
 .dd-providers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }

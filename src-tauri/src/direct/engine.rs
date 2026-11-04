@@ -448,7 +448,17 @@ impl Engine {
     }
 
     async fn page_links(&self, url: &str) -> Vec<String> {
-        let Ok(mut resp) = self.0.http.get(url).send().await else { return vec![] };
+        // Retried like a probe: a page that fails once would otherwise pass for
+        // a page without files.
+        let mut sent = self.0.http.get(url).send().await;
+        for attempt in 0..PROBE_RETRIES {
+            if sent.as_ref().is_ok_and(|r| !r.status().is_server_error()) {
+                break;
+            }
+            sleep(Duration::from_millis(500 << attempt)).await;
+            sent = self.0.http.get(url).send().await;
+        }
+        let Ok(mut resp) = sent else { return vec![] };
         let base = resp.url().to_string();
         let mut body = Vec::new();
         while let Ok(Some(chunk)) = resp.chunk().await {
