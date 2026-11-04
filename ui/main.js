@@ -310,26 +310,26 @@ $("tbody").addEventListener("contextmenu", (e) => {
   const t = torrents.find((x) => x.id === id); if (!t) return;
   const ids = [...selectedIds];
   const items = ids.length > 1 ? [
-    { label: `▶ Resume ${ids.length} torrents`, act: () => forSelected("resume_torrent", pickedIds(canResume, ids)) },
-    { label: `⏸ Pause ${ids.length} torrents`, act: () => forSelected("pause_torrent", pickedIds(canPause, ids)) },
+    { key: "⌘/", label: `▶ Resume ${ids.length} torrents`, act: () => forSelected("resume_torrent", pickedIds(canResume, ids)) },
+    { key: "⌘.", label: `⏸ Pause ${ids.length} torrents`, act: () => forSelected("pause_torrent", pickedIds(canPause, ids)) },
     { label: `📡 Force re-announce ${ids.length} torrents`, act: () => forSelected("reannounce", ids) },
-    { label: `⚡ Speed limits for ${ids.length} torrents…`, act: () => openTorrentLimits(ids) },
+    { key: "⇧⌘L", label: `⚡ Speed limits for ${ids.length} torrents…`, act: () => openTorrentLimits(ids) },
     { sep: true },
-    { label: `✕ Remove ${ids.length} torrents (keep files)`, act: () => removeNow(ids, false) },
-    { label: `🗑 Remove ${ids.length} torrents + move files to Trash`, danger: true, act: () => confirmTrash(ids) },
+    { key: "⌫", label: `✕ Remove ${ids.length} torrents (keep files)`, act: () => removeNow(ids, false) },
+    { key: "⌥⌘⌫", label: `🗑 Remove ${ids.length} torrents + move files to Trash`, danger: true, act: () => confirmTrash(ids) },
   ] : [
     t.paused || metrics(t).st.error
-      ? { label: metrics(t).st.error ? "▶ Resume (downloads what's missing)" : "▶ Resume", act: () => invoke("resume_torrent", { id }).then(refresh).catch(showError) }
-      : { label: "⏸ Pause", act: () => invoke("pause_torrent", { id }).then(refresh).catch(showError) },
+      ? { key: "⌘/", label: metrics(t).st.error ? "▶ Resume (downloads what's missing)" : "▶ Resume", act: () => invoke("resume_torrent", { id }).then(refresh).catch(showError) }
+      : { key: "⌘.", label: "⏸ Pause", act: () => invoke("pause_torrent", { id }).then(refresh).catch(showError) },
     { label: "📡 Force re-announce (reconnect peers)", act: () => invoke("reannounce", { id }).then(refresh).catch(showError) },
-    { label: `⚡ Speed limits…${t.down_kbps || t.up_kbps ? ` (${limitText(t)})` : ""}`, act: () => openTorrentLimits([id]) },
-    { label: "📂 Open destination folder", act: () => t.output_folder && invoke("reveal_path", { path: t.output_folder }).catch(showError) },
-    { label: "ⓘ Details / category…", act: () => { selectTorrent(id); showDetails(true); } },
+    { key: "⇧⌘L", label: `⚡ Speed limits…${t.down_kbps || t.up_kbps ? ` (${limitText(t)})` : ""}`, act: () => openTorrentLimits([id]) },
+    { key: "⌘R", label: "📂 Open destination folder", act: () => t.output_folder && invoke("reveal_path", { path: t.output_folder }).catch(showError) },
+    { key: "⌘I", label: "ⓘ Details / category…", act: () => { selectTorrent(id); showDetails(true); } },
     { sep: true },
     { label: "📋 Copy info hash", act: () => { try { navigator.clipboard.writeText(t.info_hash || ""); } catch (_) {} } },
     { sep: true },
-    { label: "✕ Remove (keep files)", act: () => removeNow([id], false) },
-    { label: "🗑 Remove + move files to Trash", danger: true, act: () => confirmTrash([id]) },
+    { key: "⌫", label: "✕ Remove (keep files)", act: () => removeNow([id], false) },
+    { key: "⌥⌘⌫", label: "🗑 Remove + move files to Trash", danger: true, act: () => confirmTrash([id]) },
   ];
   showContextMenu(e, items);
 });
@@ -375,27 +375,73 @@ document.addEventListener("keydown", (e) => {
   if (!$("modal").hidden) { if (e.key === "Escape") $("modal").hidden = true; return; } // settings open
   if ($("view-torrent").hidden) return; // keys belong to the visible tab
 
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+  const target = listTarget(e, rowOrder(), selectedId);
+  if (target !== undefined) {
+    e.preventDefault();
+    if (e.shiftKey) selectRows(rangeTo(rowOrder(), anchorId, target), target);
+    else selectTorrent(target);
+    document.querySelector(`#tbody tr[data-id="${target}"]`)?.scrollIntoView({ block: "nearest" });
+  } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
     e.preventDefault();
     selectRows(rowOrder());
   } else if (e.key === "Delete" || e.key === "Backspace") {
     if (!selectedIds.size) return;
     e.preventDefault();
-    openRemoveModal();
+    if (e.altKey && e.metaKey) confirmTrash([...selectedIds]);
+    else openRemoveModal();
+  } else if (e.key === " ") {
+    e.preventDefault();
+    toggleSelected();
+  } else if (e.key === "Enter") {
+    if (!selectedIds.size) return;
+    e.preventDefault();
+    revealSelected();
   } else if (e.key === "Escape") {
-    hideCtx(); showDetails(false);
-  } else if (e.metaKey && e.key.toLowerCase() === "i") {
-    e.preventDefault();
-    showDetails($("detail").hidden);
-  } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-    const order = rowOrder(); if (!order.length) return;
-    e.preventDefault();
-    let i = order.indexOf(selectedId);
-    i = i === -1 ? 0 : (e.key === "ArrowDown" ? Math.min(order.length - 1, i + 1) : Math.max(0, i - 1));
-    selectTorrent(order[i]);
-    document.querySelector(`#tbody tr[data-id="${order[i]}"]`)?.scrollIntoView({ block: "nearest" });
+    // One step back at a time: the menu, then the details, then the selection.
+    if (!contextMenu.hidden) hideCtx(true);
+    else if (!$("detail").hidden) showDetails(false);
+    else selectRows([]);
   }
 });
+
+// Space pauses the selection when any of it runs, and resumes it otherwise.
+function toggleSelected() {
+  const pausable = pickedIds(canPause);
+  if (pausable.length) forSelected("pause_torrent", pausable);
+  else forSelected("resume_torrent", pickedIds(canResume));
+}
+function revealSelected() {
+  const t = torrents.find((x) => x.id === selectedId) || torrents.find((x) => selectedIds.has(x.id));
+  if (t?.output_folder) invoke("reveal_path", { path: t.output_folder }).catch(showError);
+}
+async function openTorrentFiles() {
+  try {
+    const files = await invoke("pick_torrent_files");
+    if (!files.length) return;
+    $("app-tab-torrent").click();
+    for (const bytes of files) await invoke("add_torrent_bytes", { bytes, opts: addOpts() });
+    await refresh();
+  } catch (e) { showError(e); }
+}
+onMenu("torrent", {
+  resume: () => forSelected("resume_torrent", pickedIds(canResume)),
+  pause: () => forSelected("pause_torrent", pickedIds(canPause)),
+  "resume-all": () => forSelected("resume_torrent", torrents.filter((t) => t.paused && !metrics(t).st.error).map((t) => t.id)),
+  "pause-all": () => forSelected("pause_torrent", torrents.filter(canPause).map((t) => t.id)),
+  reveal: revealSelected,
+  limits: () => openTorrentLimits([...selectedIds]),
+  reannounce: () => forSelected("reannounce", [...selectedIds]),
+  details: () => showDetails($("detail").hidden),
+  remove: () => openRemoveModal(),
+  "remove-trash": () => selectedIds.size && confirmTrash([...selectedIds]),
+});
+onMenu("any", {
+  "add-links": () => { $("app-tab-torrent").click(); $("magnet").focus(); },
+  "open-torrent": openTorrentFiles,
+  about: () => $("about-open").click(),
+});
+onMenu("bandwidth", { settings: () => $("settings-btn").click() });
+onMenu("torrent", { settings: () => $("settings-btn").click() });
 
 // ---- detail pane ---------------------------------------------------------
 function paintSelection() {
@@ -406,8 +452,8 @@ function selectTorrent(id) {
   selectedId = id; anchorId = id; selectedIds = new Set([id]); contentFor = null;
   paintSelection(); loadTab();
 }
-function selectRows(ids) {
-  selectedIds = new Set(ids); selectedId = ids[ids.length - 1] ?? null; contentFor = null;
+function selectRows(ids, current = ids[ids.length - 1]) {
+  selectedIds = new Set(ids); selectedId = current ?? null; contentFor = null;
   paintSelection();
   loadTab();
 }

@@ -200,6 +200,12 @@ code { background: var(--track); padding: 1px 5px; border-radius: 4px; font-size
 .ctx-item {
   padding: 6px 12px; border-radius: 5px; cursor: pointer; white-space: nowrap; color: var(--text);
 }
+.ctx-item { display: flex; justify-content: space-between; gap: 24px; }
+.ctx-item kbd, .keys kbd { font: inherit; color: var(--muted); }
+.keys h3 { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.keys h3:first-child { margin-top: 0; }
+.keys dl { display: grid; grid-template-columns: 150px 1fr; gap: 5px 14px; margin: 0; }
+.keys dt { text-align: right; } .keys dt kbd { color: var(--text); font-weight: 600; } .keys dd { margin: 0; }
 .ctx-item:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
 .ctx-item.danger:hover { background: color-mix(in srgb, var(--err) 18%, transparent); color: var(--err); }
 .ctx-sep { height: 1px; background: var(--border); margin: 4px 6px; }
