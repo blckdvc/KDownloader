@@ -48,7 +48,24 @@
           "org.bittorrent.torrent"
         ]
       }
-    ]
+    ],
+    "macOS": {
+      "dmg": {
+        "background": "dmg/background.tiff",
+        "windowSize": {
+          "width": 660,
+          "height": 420
+        },
+        "appPosition": {
+          "x": 170,
+          "y": 210
+        },
+        "applicationFolderPosition": {
+          "x": 490,
+          "y": 210
+        }
+      }
+    }
   },
   "plugins": {}
 }
