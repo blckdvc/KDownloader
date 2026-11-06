@@ -9,6 +9,13 @@ Next to it, a **Direct Download** tab handles links, hosters and premium account
 No bundled browser: the UI runs in the macOS system WebView, so the app is a
 small native binary rather than a 150 MB Electron bundle.
 
+![KDownloader — torrents, with the Details panel on the peers](docs/screenshot-torrents.png)
+
+### Support the project
+Free and open-source 🙂 — if you feel like it, buy me a few tokens:
+
+[![Buy me tokens](docs/buy-me-tokens.png)](https://paypal.me/lbenh)
+
 ## Features
 
 ### Torrents
@@ -29,6 +36,8 @@ small native binary rather than a 150 MB Electron bundle.
 - **Scheduler**: alternate limits during a daily time window
 - **Bandwidth tab**: a live speed chart, plus a speed meter on the Dock icon
 
+![KDownloader — Bandwidth tab](docs/screenshot-bandwidth.png)
+
 ### Network and privacy
 
 - **Protocol encryption (MSE/PE)**: *Preferred* (encrypt when the peer can), *Required* (encrypted peers
@@ -42,6 +51,8 @@ small native binary rather than a 150 MB Electron bundle.
   and binding to a network interface (useful with a VPN)
 - Logs show only the tracker host, since private-tracker URLs carry a passkey
 
+![KDownloader — Settings, network and privacy](docs/screenshot-settings.png)
+
 ### Automation
 
 - **Watch folder**: auto-adds `.torrent` files dropped into a folder (with an optional category), then moves
@@ -54,6 +65,8 @@ A native menu bar with Transmission-style shortcuts: ⌘O open, ⌘U add links, 
 ⌘/ and ⌘. resume / pause, ⌥⌘/ and ⌥⌘. for everything, ⌘R show in Finder, ⌥⌘↑↓ queue order, ⌘, settings.
 Lists take arrows, ⇧-arrows, Home/End, Page Up/Down, Space (pause/resume), Return, ⌫ (remove)
 and ⌥⌘⌫ (move to Trash). Press **?** for the full list.
+
+![KDownloader — keyboard shortcuts](docs/screenshot-shortcuts.png)
 
 ### Not included / known limits
 
@@ -170,3 +183,8 @@ listens for Click'n'Load on `127.0.0.1:9666`: links from a known protector start
 and links from any other page wait in the Link Grabber.
 
 Out of scope: captcha solving, dodging hoster limits, container decryption, protected streams.
+
+![KDownloader — Direct Download queue](docs/screenshot-direct.png)
+![KDownloader — Link Grabber](docs/screenshot-grabber.png)
+
+The screenshots use demo data: public Linux images, Blender open movies and free software.
