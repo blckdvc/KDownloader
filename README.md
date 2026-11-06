@@ -123,7 +123,7 @@ cargo tauri build
 Output lands in `src-tauri/target/release/bundle/`:
 
 - `macos/KDownloader.app` — the application
-- `dmg/KDownloader_0.1.0_aarch64.dmg` — a drag-to-install disk image
+- `dmg/KDownloader_0.2.0_aarch64.dmg` — a drag-to-install disk image
 
 > The build is ad-hoc signed. See **Install on macOS** below for why that
 > matters for automatic UPnP, and how to fix it for free.
