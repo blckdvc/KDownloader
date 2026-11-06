@@ -2,42 +2,84 @@
 
 A light download manager and BitTorrent client for macOS, named as a nod to JDownloader.
 
-A light, native BitTorrent client for macOS — Transmission-weight, built on the
+The torrent side is Transmission-weight, built on the
 [`librqbit`](https://crates.io/crates/librqbit) engine and [Tauri 2](https://tauri.app).
+Next to it, a **Direct Download** tab handles links, hosters and premium accounts (see below).
 
 No bundled browser: the UI runs in the macOS system WebView, so the app is a
 small native binary rather than a 150 MB Electron bundle.
 
+![KDownloader — torrents, with the Details panel on the peers](docs/screenshot-torrents.png)
+
+### Support the project
+Free and open-source 🙂 — if you feel like it, buy me a few tokens:
+
+[![Buy me tokens](docs/buy-me-tokens.png)](https://paypal.me/lbenh)
+
 ## Features
 
-- Add torrents by **magnet link**, **http(s) `.torrent` URL**, or a **local `.torrent` file**
-- Start / pause / resume; remove with optional file deletion
-- Live progress, download/upload speed, ETA, and total throughput
-- **Resume across restarts** — session persistence + fastresume
-- **Speed limits** — global (adjustable live) and per-torrent (set at add time)
-- **Per-file selection** — choose which files in a torrent to download
-- **Per-torrent save path** and **categories / tags** (persisted, with a category filter)
-- **Watch folder** — auto-adds `.torrent` files dropped into a folder, then moves them to `.kdownloader-added`
-- **Scheduler** — apply alternate speed limits during a daily time window
-- **RSS auto-download** — poll feeds and add items whose title matches your regex rules
+### Torrents
+
+- Add torrents by **magnet link**, **http(s) `.torrent` URL** or **local `.torrent` file** (⌘O,
+  or as the system's default handler for magnets and `.torrent` files)
+- Start / pause / resume / force re-announce; remove, optionally moving the files to the Trash
+- Live progress, speeds, ETA, ratio, seeds and peers (with the tracker's swarm counts)
+- **Details panel**: general info, trackers, connected peers, and per-file content
+- **Per-file selection**: choose which files to download, at add time or later
+- **Per-torrent save path** and **categories / tags**, with a category filter
+- **Resume across restarts** (session persistence + fastresume)
+
+### Speed and scheduling
+
+- **Global limits**, adjustable live
+- **Per-torrent limits**, set at add time or changed any time from the right-click menu (⇧⌘L)
+- **Scheduler**: alternate limits during a daily time window
+- **Bandwidth tab**: a live speed chart, plus a speed meter on the Dock icon
+
+![KDownloader — Bandwidth tab](docs/screenshot-bandwidth.png)
+
+### Network and privacy
+
+- **Protocol encryption (MSE/PE)**: *Preferred* (encrypt when the peer can), *Required* (encrypted peers
+  only) or *Off*. It hides BitTorrent traffic from providers that throttle it, and lets you reach
+  private-tracker swarms that require it. It doesn't hide your IP address.
+- **SOCKS5 proxy** for peer connections
+- **IP block list** (a URL to a P2P-format list)
+- **Extra trackers** added to every public torrent (never to private ones)
+- **Max peers per torrent**
+- Incoming port with **UPnP** (IGD v1 and v2, which librqbit's own forwarder misses), optional **µTP**,
+  and binding to a network interface (useful with a VPN)
+- Logs show only the tracker host, since private-tracker URLs carry a passkey
+
+![KDownloader — Settings, network and privacy](docs/screenshot-settings.png)
+
+### Automation
+
+- **Watch folder**: auto-adds `.torrent` files dropped into a folder (with an optional category), then moves
+  them to `.kdownloader-added`
+- **RSS auto-download**: polls feeds and adds items whose title matches your regex rules
+
+### Keyboard
+
+A native menu bar with Transmission-style shortcuts: ⌘O open, ⌘U add links, ⌘1–4 tabs, ⌘I details,
+⌘/ and ⌘. resume / pause, ⌥⌘/ and ⌥⌘. for everything, ⌘R show in Finder, ⌥⌘↑↓ queue order, ⌘, settings.
+Lists take arrows, ⇧-arrows, Home/End, Page Up/Down, Space (pause/resume), Return, ⌫ (remove)
+and ⌥⌘⌫ (move to Trash). Press **?** for the full list.
+
+![KDownloader — keyboard shortcuts](docs/screenshot-shortcuts.png)
 
 ### Not included / known limits
 
-- **Protocol encryption (MSE/PE) is *not supported*** — the `librqbit` engine currently has no
-  message-stream-encryption support, so KDownloader can only talk to peers in **plaintext**. Peers that
-  require/negotiate encryption fail the handshake. This mostly hits **private trackers** (which often
-  mandate encryption): their swarms seed/leech poorly or not at all, while public torrents (with many
-  plaintext peers) work fine. Tracked upstream in
-  [rqbit PR #633 (MSE support)](https://github.com/ikatson/rqbit/pull/633) — once merged and released,
-  bump the `librqbit` dependency to gain it.
-- **Sequential download** is *not available* — the `librqbit` engine has no sequential/streaming-order
-  download mode, so this can't be offered honestly. (Per-file selection is the closest supported control.)
+- **Sequential download** is not offered: the app doesn't expose a streaming-order mode.
+  Per-file selection is the closest control.
 - **Search plugins** (qBittorrent-style site scrapers) are intentionally not bundled: that's a separate
   subsystem that scrapes torrent indexers, with real legal/ToS considerations. Can be added later against
   a legitimate indexer API if you want it.
-- Per-torrent speed limits are set **at add time** (engine exposes them there); the global limit is the
-  one adjustable live. Changing the **global download folder** (status bar → *Change…*) applies
-  immediately to newly added torrents; already-added torrents keep their folder.
+- Network settings (port, µTP, proxy, block list, extra trackers, peer limit, encryption) take effect after
+  a restart. Changing the global download folder applies immediately to newly added torrents;
+  already-added torrents keep their folder.
+- The engine is a vendored copy of librqbit with MSE support (rqbit PR #633) and a few patches,
+  listed in `src-tauri/vendor/rqbit/KDOWNLOADER-PATCHES.md`.
 
 All app settings live in `~/Library/Application Support/com.kdownloader.desktop/`.
 
@@ -45,15 +87,23 @@ All app settings live in `~/Library/Application Support/com.kdownloader.desktop/
 
 ```
 KDownloader/
-├── src-tauri/          Rust backend (Tauri app + librqbit engine)
-│   ├── src/lib.rs      Session + Tauri commands
-│   ├── src/main.rs     entry point
-│   ├── Cargo.toml
+├── src-tauri/              Rust backend (Tauri app)
+│   ├── src/lib.rs          torrent session + Tauri commands
+│   ├── src/menu.rs         menu bar and shortcuts
+│   ├── src/direct/         Direct Download engine, link grabbing, debrid providers, Click'n'Load
+│   ├── src/rss.rs          RSS auto-download
+│   ├── src/watch.rs        watch folder
+│   ├── src/upnp.rs         UPnP port forwarding
+│   ├── src/dock.rs         Dock speed meter
+│   ├── src/handler.rs      default handler for magnets and .torrent files
+│   ├── vendor/rqbit/       patched librqbit (MSE encryption)
 │   └── tauri.conf.json
-└── ui/                 Frontend (vanilla HTML/CSS/JS — no bundler, no npm)
-    ├── index.html
-    ├── styles.css
-    └── main.js
+└── ui/                     Frontend (vanilla HTML/CSS/JS, no bundler, no npm)
+    ├── index.html, styles.css
+    ├── table.js            shared list, menu and shortcut code
+    ├── main.js             Torrents tab
+    ├── direct.js           Direct Download tab
+    └── bandwidth.js        Bandwidth tab
 ```
 
 ## Develop
@@ -109,11 +159,9 @@ clients do, and the permission sticks.
 
 ## Possible next steps
 
-- A native folder picker (via `tauri-plugin-dialog`) for save paths and the watch folder
-- Live per-torrent speed limits (would need an upstream librqbit addition)
 - RSS "smart episode" filters and per-feed scheduling
 - Search against a legitimate indexer API (opt-in)
-- Global download-folder change without restart
+- Applying network settings without a restart
 
 ## Direct Download
 
@@ -135,3 +183,8 @@ listens for Click'n'Load on `127.0.0.1:9666`: links from a known protector start
 and links from any other page wait in the Link Grabber.
 
 Out of scope: captcha solving, dodging hoster limits, container decryption, protected streams.
+
+![KDownloader — Direct Download queue](docs/screenshot-direct.png)
+![KDownloader — Link Grabber](docs/screenshot-grabber.png)
+
+The screenshots use demo data: public Linux images, Blender open movies and free software.
