@@ -187,4 +187,4 @@ Out of scope: captcha solving, dodging hoster limits, container decryption, prot
 ![KDownloader — Direct Download queue](docs/screenshot-direct.png)
 ![KDownloader — Link Grabber](docs/screenshot-grabber.png)
 
-The screenshots use demo data: public Linux images, Blender open movies and free software.
+The screenshots use made-up demo data: invented names, example.org URLs and reserved example IP addresses.
