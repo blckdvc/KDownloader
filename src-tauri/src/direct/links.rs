@@ -88,7 +88,7 @@ pub fn is_file_host(url: &str) -> bool {
 
 /// Hosts that check for a real browser before showing a file. Their page opens
 /// in a window, which downloads the file itself into the queue's folder.
-const BROWSER_HOSTS: [&str; 1] = ["workupload.com"];
+const BROWSER_HOSTS: [&str; 3] = ["workupload.com", "buzzheavier.com", "bzzhr.co"];
 
 /// The page window's user agent: Safari's, which sites expect from a Mac.
 pub const BROWSER_UA: &str =
@@ -99,6 +99,21 @@ pub fn needs_browser(url: &str) -> bool {
     let Ok(u) = Url::parse(url) else { return false };
     let host = u.host_str().unwrap_or("").to_ascii_lowercase();
     BROWSER_HOSTS.iter().any(|d| host == *d || host.ends_with(&format!(".{d}"))) && u.path().len() > 1
+}
+
+/// A buzzheavier page: the window fetches its file address, as the page's
+/// Download button would, and hands it to the queue.
+pub fn is_buzzheavier(url: &str) -> bool {
+    let Ok(u) = Url::parse(url) else { return false };
+    let host = u.host_str().unwrap_or("").to_ascii_lowercase();
+    ["buzzheavier.com", "bzzhr.co"].iter().any(|d| host == *d || host.ends_with(&format!(".{d}")))
+}
+
+/// buzzheavier's file address: a signed link on one of its file servers,
+/// which serves the file with resume and no browser check.
+pub fn is_buzzheavier_file(url: &Url) -> bool {
+    let host = url.host_str().unwrap_or("").to_ascii_lowercase();
+    host.ends_with(".buzzheavier.com") && url.path().starts_with("/d/")
 }
 
 /// Links to downloadable files in an HTML page (one level, no JS).
@@ -249,6 +264,17 @@ mod tests {
         assert!(needs_browser("https://www.workupload.com/file/2Jme2Awus9s"));
         assert!(!needs_browser("https://workupload.com/"));
         assert!(!needs_browser("https://pixeldrain.com/u/abc"));
+    }
+
+    #[test]
+    fn buzzheavier_files_open_in_a_browser() {
+        assert!(needs_browser("https://buzzheavier.com/f8k4y7jdmmyb"));
+        assert!(needs_browser("https://bzzhr.co/f8k4y7jdmmyb"));
+        assert!(!needs_browser("https://buzzheavier.com/"));
+        assert!(is_buzzheavier("https://bzzhr.co/f8k4y7jdmmyb"));
+        assert!(!is_buzzheavier("https://workupload.com/file/x"));
+        assert!(is_buzzheavier_file(&Url::parse("https://ts.buzzheavier.com/d/f8k4y7jdmmyb?v=x").unwrap()));
+        assert!(!is_buzzheavier_file(&Url::parse("https://buzzheavier.com/f8k4y7jdmmyb").unwrap()));
     }
 
     #[test]
