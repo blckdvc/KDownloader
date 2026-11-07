@@ -338,11 +338,16 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
         return Err("Not a protected link".into());
     }
     let page = Url::parse(&url).map_err(|e| e.to_string())?;
-    let hosters = app.state::<Engine>().accounts().hoster_domains().await;
-    let mut script = REPORT_LINKS.replace("__HOSTERS__", &serde_json::json!(hosters).to_string());
-    script.push_str(CATCH_CLICK_N_LOAD);
-    let keeplinks = page.host_str().is_some_and(|h| h.contains("keeplinks."));
-    script.push_str(if keeplinks { FOCUS_KEEPLINKS } else { FOCUS_CAPTCHA });
+    // A browser host's page is shown as it is: the protector scripts would hide
+    // it, since it has no captcha to keep in view.
+    let mut script = String::new();
+    if !browser_host {
+        let hosters = app.state::<Engine>().accounts().hoster_domains().await;
+        script = REPORT_LINKS.replace("__HOSTERS__", &serde_json::json!(hosters).to_string());
+        script.push_str(CATCH_CLICK_N_LOAD);
+        let keeplinks = page.host_str().is_some_and(|h| h.contains("keeplinks."));
+        script.push_str(if keeplinks { FOCUS_KEEPLINKS } else { FOCUS_CAPTCHA });
+    }
     let label = format!("captcha-{}", NEXT_POPUP.fetch_add(1, Ordering::Relaxed));
     let (nav_app, nav_label, nav_source, nav_page) = (app.clone(), label.clone(), url.clone(), page.clone());
     let (win_app, win_label, win_source, win_page) = (app.clone(), label.clone(), url.clone(), page.clone());
@@ -364,6 +369,10 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
     builder
         .initialization_script(&script)
         .on_navigation(move |target| {
+            // The site's page leads to its file wherever it's served from.
+            if browser_host {
+                return matches!(target.scheme(), "http" | "https" | "about" | "blob" | "data");
+            }
             let reported = target.host_str() == Some(REPORT_HOST);
             if !reported && belongs_to_page(target, &nav_page) {
                 return true;
@@ -380,6 +389,15 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
             false
         })
         .on_new_window(move |target, _| {
+            if browser_host {
+                // A download link opening a tab: follow it here, where downloads are caught.
+                if matches!(target.scheme(), "http" | "https") {
+                    if let Some(window) = win_app.get_webview_window(&win_label) {
+                        let _ = window.navigate(target);
+                    }
+                }
+                return NewWindowResponse::Deny;
+            }
             if belongs_to_page(&target, &win_page) {
                 // FileCrypt opens each link this way. Elsewhere it's an ad script,
                 // and following it would reload the page and lose the captcha.
