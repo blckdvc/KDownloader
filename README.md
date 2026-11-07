@@ -123,7 +123,7 @@ cargo tauri build
 Output lands in `src-tauri/target/release/bundle/`:
 
 - `macos/KDownloader.app` — the application
-- `dmg/KDownloader_0.2.0_aarch64.dmg` — a drag-to-install disk image
+- `dmg/KDownloader_0.2.1_aarch64.dmg` — a drag-to-install disk image
 
 > The build is ad-hoc signed. See **Install on macOS** below for why that
 > matters for automatic UPnP, and how to fix it for free.
@@ -170,6 +170,11 @@ link grabbing, multi-connection HTTP downloads with resume, packages, automatic
 extraction, and premium accounts through the official APIs of Real-Debrid, AllDebrid,
 Premiumize, Debrid-Link, Uploadedpremiumlink, TorBox, Mega-Debrid, Cocoleech and
 Fakirdebrid. API keys are stored in the macOS Keychain.
+
+Free hosts with a direct file address work without an account: **pixeldrain** share
+links (`/u/…`) download with resume, and albums (`/l/…`) expand into their files.
+Hosts that put a bot check in front of their files, such as workupload, need an
+account on a debrid service that supports them.
 
 Copied links are routed automatically: magnets and `.torrent` URLs prefill the Torrent
 tab, and other file links start at once, or wait in the Link Grabber if you turn that off. The code lives in `src-tauri/src/direct/`
