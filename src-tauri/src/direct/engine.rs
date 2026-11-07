@@ -368,6 +368,7 @@ impl Engine {
             let mut kept = Vec::new();
             for url in urls {
                 if links::looks_like_file(&url)
+                    || links::is_file_host(&url)
                     || links::is_link_protector(&url)
                     || self.0.accounts.is_known_hoster(&url).await
                 {
@@ -376,6 +377,7 @@ impl Engine {
             }
             urls = kept;
         }
+        let urls = self.expand_albums(urls).await;
         let first = self.probe_all(urls).await;
         let mut found = Vec::new();
         let mut followed = Vec::new();
@@ -445,6 +447,33 @@ impl Engine {
             });
         }
         set.join_all().await
+    }
+
+    /// Replaces each pixeldrain album with the share links of its files.
+    async fn expand_albums(&self, urls: Vec<String>) -> Vec<String> {
+        let mut out = Vec::new();
+        for url in urls {
+            let Some(api) = links::pixeldrain_list(&url) else {
+                out.push(url);
+                continue;
+            };
+            let files = async {
+                let body: serde_json::Value = self.0.http.get(&api).send().await.ok()?.json().await.ok()?;
+                let ids: Vec<String> = body["files"]
+                    .as_array()?
+                    .iter()
+                    .filter_map(|f| f["id"].as_str())
+                    .map(|id| format!("https://pixeldrain.com/u/{id}"))
+                    .collect();
+                (!ids.is_empty()).then_some(ids)
+            }
+            .await;
+            match files {
+                Some(files) => out.extend(files),
+                None => out.push(url), // probed as is, and reported as a page
+            }
+        }
+        out
     }
 
     async fn page_links(&self, url: &str) -> Vec<String> {
@@ -758,7 +787,7 @@ impl Engine {
                 })
                 .ok_or(DlError::Cancelled)?;
         }
-        let target = item.direct.clone().unwrap_or_else(|| item.url.clone());
+        let target = item.direct.clone().unwrap_or_else(|| links::file_url(&item.url));
         if fresh || item.provider.is_some() {
             let info = tokio::select! {
                 _ = token.cancelled() => return Err(DlError::Cancelled),
@@ -1329,7 +1358,8 @@ async fn inspect(http: &Client, accounts: &Accounts, url: &str) -> Probe {
                     ..Default::default()
                 };
             }
-            let mut result = probe(http, url).await;
+            let mut result = probe(http, &links::file_url(url)).await;
+            result.url = url.to_string();
             // A hoster answers with its landing page, or blocks us outright.
             if (result.html || !result.online) && accounts.is_known_hoster(url).await {
                 result.online = false;
