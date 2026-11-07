@@ -4,8 +4,8 @@
 use crate::direct::links;
 use crate::direct::providers::{Accounts, Provider, Unlocked};
 use reqwest::header::{
-    HeaderMap, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, ETAG, IF_RANGE,
-    LAST_MODIFIED, RANGE, RETRY_AFTER,
+    HeaderMap, CONTENT_DISPOSITION, COOKIE, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, ETAG, IF_RANGE,
+    LAST_MODIFIED, RANGE, RETRY_AFTER, USER_AGENT,
 };
 use reqwest::{Client, Response, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -116,6 +116,10 @@ pub struct Item {
     pub direct: Option<String>,
     #[serde(default)]
     pub max_chunks: Option<usize>,
+    /// Cookies of the browser session a site's check granted, sent with every
+    /// request for this file.
+    #[serde(default)]
+    pub cookie: Option<String>,
     #[serde(default)]
     pub done: u64,
     #[serde(default)]
@@ -178,6 +182,8 @@ pub struct Probe {
     pub protected: bool,
     /// Listed from an untrusted page, and not contacted until the user accepts it.
     pub unchecked: bool,
+    /// Cookies of the page window the download came from.
+    pub cookie: Option<String>,
     #[serde(skip)]
     html: bool,
     #[serde(skip)]
@@ -253,6 +259,7 @@ struct Job {
     resumable: bool,
     validator: Option<String>,
     relinkable: bool,
+    cookie: Option<String>,
 }
 
 struct Inner {
@@ -369,6 +376,7 @@ impl Engine {
             for url in urls {
                 if links::looks_like_file(&url)
                     || links::is_file_host(&url)
+                    || links::needs_browser(&url)
                     || links::is_link_protector(&url)
                     || self.0.accounts.is_known_hoster(&url).await
                 {
@@ -499,6 +507,21 @@ impl Engine {
         links::extract_file_links(&String::from_utf8_lossy(&body), &base)
     }
 
+    /// Queues a download a page window started, with that window's cookies.
+    pub async fn add_from_browser(&self, url: &str, cookie: Option<String>) -> Result<String, String> {
+        let mut found = probe(&self.0.http, url, cookie.as_deref()).await;
+        if !found.online {
+            return Err(found.error.unwrap_or_else(|| "offline".into()));
+        }
+        if found.html {
+            return Err("The site sent a web page, not the file".into());
+        }
+        found.cookie = cookie;
+        let name = found.name.clone();
+        self.add_with(vec![found], AddOptions::default());
+        Ok(name)
+    }
+
     #[cfg(test)]
     pub fn add(&self, probes: Vec<Probe>) {
         self.add_with(probes, AddOptions::default());
@@ -527,6 +550,7 @@ impl Engine {
                     provider: p.provider,
                     direct: p.direct,
                     max_chunks: p.max_chunks,
+                    cookie: p.cookie,
                     done: 0,
                     speed: 0,
                     retry_at: None,
@@ -791,7 +815,7 @@ impl Engine {
         if fresh || item.provider.is_some() {
             let info = tokio::select! {
                 _ = token.cancelled() => return Err(DlError::Cancelled),
-                p = probe(&self.0.http, &target) => p,
+                p = probe(&self.0.http, &target, item.cookie.as_deref()) => p,
             };
             if !info.online && link_is_fresh && item.provider.is_some() {
                 return Err(DlError::Relink);
@@ -853,6 +877,7 @@ impl Engine {
                 resumable: item.resumable,
                 validator: item.validator.clone(),
                 relinkable: item.provider.is_some(),
+                cookie: item.cookie.clone(),
             };
             set.spawn(self.clone().run_segment(job, group.clone()));
         }
@@ -905,7 +930,7 @@ impl Engine {
             .ok_or(Attempt::Stop(DlError::Cancelled))?;
         let pos = segment.start + segment.done;
 
-        let mut request = self.0.http.get(&job.url);
+        let mut request = get(&self.0.http, &job.url, job.cookie.as_deref());
         if job.resumable {
             let end = segment.end.map(|e| e.to_string()).unwrap_or_default();
             request = request.header(RANGE, format!("bytes={pos}-{end}"));
@@ -1346,6 +1371,18 @@ async fn extract_archive(archive: &Path, target: &Path) -> Result<(), String> {
 async fn inspect(http: &Client, accounts: &Accounts, url: &str) -> Probe {
     let (provider, unlocked) = match accounts.unlock_any(url).await {
         None => {
+            if links::needs_browser(url) {
+                let name = links::name_from_url(url);
+                return Probe {
+                    url: url.to_string(),
+                    package: links::package_name(&name),
+                    name,
+                    page: true,
+                    protected: true,
+                    error: Some("This site checks for a browser: the download starts from its page".into()),
+                    ..Default::default()
+                };
+            }
             if links::is_link_protector(url) {
                 let name = links::name_from_url(url);
                 return Probe {
@@ -1358,7 +1395,7 @@ async fn inspect(http: &Client, accounts: &Accounts, url: &str) -> Probe {
                     ..Default::default()
                 };
             }
-            let mut result = probe(http, &links::file_url(url)).await;
+            let mut result = probe(http, &links::file_url(url), None).await;
             result.url = url.to_string();
             // A hoster answers with its landing page, or blocks us outright.
             if (result.html || !result.online) && accounts.is_known_hoster(url).await {
@@ -1380,7 +1417,7 @@ async fn inspect(http: &Client, accounts: &Accounts, url: &str) -> Probe {
             };
         }
     };
-    let mut result = probe(http, &unlocked.url).await;
+    let mut result = probe(http, &unlocked.url, None).await;
     result.url = url.to_string();
     result.html = false;
     result.provider = Some(provider);
@@ -1396,24 +1433,24 @@ async fn inspect(http: &Client, accounts: &Accounts, url: &str) -> Probe {
 
 /// A pooled connection the server just closed, or a passing outage, must not
 /// read as a dead link.
-async fn probe(http: &Client, url: &str) -> Probe {
-    let mut result = probe_once(http, url).await;
+async fn probe(http: &Client, url: &str, cookie: Option<&str>) -> Probe {
+    let mut result = probe_once(http, url, cookie).await;
     for attempt in 0..PROBE_RETRIES {
         if !result.transient {
             break;
         }
         sleep(Duration::from_millis(500 << attempt)).await;
-        result = probe_once(http, url).await;
+        result = probe_once(http, url, cookie).await;
     }
     result
 }
 
 /// Asks for the first byte: a 206 tells us both the size and range support.
-async fn probe_once(http: &Client, url: &str) -> Probe {
+async fn probe_once(http: &Client, url: &str, cookie: Option<&str>) -> Probe {
     let mut result = Probe { url: url.to_string(), ..Default::default() };
-    let mut sent = http.get(url).header(RANGE, "bytes=0-0").send().await;
+    let mut sent = get(http, url, cookie).header(RANGE, "bytes=0-0").send().await;
     if matches!(&sent, Ok(r) if r.status() == StatusCode::RANGE_NOT_SATISFIABLE) {
-        sent = http.get(url).send().await; // empty file
+        sent = get(http, url, cookie).send().await; // empty file
     }
     let resp = match sent {
         Ok(resp) => resp,
@@ -1452,6 +1489,16 @@ async fn probe_once(http: &Client, url: &str) -> Probe {
         .or_else(|| header(headers, LAST_MODIFIED))
         .map(str::to_string);
     result
+}
+
+/// A GET carrying a browser session's cookies, and that browser's user agent,
+/// when the file came from a page window.
+fn get(http: &Client, url: &str, cookie: Option<&str>) -> reqwest::RequestBuilder {
+    let request = http.get(url);
+    match cookie {
+        Some(cookie) => request.header(COOKIE, cookie).header(USER_AGENT, links::BROWSER_UA),
+        None => request,
+    }
 }
 
 fn header(headers: &HeaderMap, name: reqwest::header::HeaderName) -> Option<&str> {
