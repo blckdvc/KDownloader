@@ -86,6 +86,22 @@ pub fn is_file_host(url: &str) -> bool {
     PIXELDRAIN_RE.is_match(url)
 }
 
+/// Hosts that check for a real browser before showing a file. Their page opens
+/// in a window, and the download it starts is handed to the queue.
+const BROWSER_HOSTS: [&str; 1] = ["workupload.com"];
+
+/// The user agent of the page window, sent again with its cookies: a site may
+/// tie its session to the browser that passed its check.
+pub const BROWSER_UA: &str =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
+
+/// A file page on a host that checks for a real browser first.
+pub fn needs_browser(url: &str) -> bool {
+    let Ok(u) = Url::parse(url) else { return false };
+    let host = u.host_str().unwrap_or("").to_ascii_lowercase();
+    BROWSER_HOSTS.iter().any(|d| host == *d || host.ends_with(&format!(".{d}"))) && u.path().len() > 1
+}
+
 /// Links to downloadable files in an HTML page (one level, no JS).
 pub fn extract_file_links(html: &str, base: &str) -> Vec<String> {
     let Ok(base) = Url::parse(base) else { return vec![] };
@@ -226,6 +242,14 @@ mod tests {
         assert_eq!(pixeldrain_list("https://pixeldrain.com/u/Xy12"), None);
         assert!(is_file_host("https://pixeldrain.com/u/iSBb9FFs"));
         assert!(!is_file_host("https://pixeldrain.com/"));
+    }
+
+    #[test]
+    fn workupload_files_open_in_a_browser() {
+        assert!(needs_browser("https://workupload.com/file/2Jme2Awus9s"));
+        assert!(needs_browser("https://www.workupload.com/file/2Jme2Awus9s"));
+        assert!(!needs_browser("https://workupload.com/"));
+        assert!(!needs_browser("https://pixeldrain.com/u/abc"));
     }
 
     #[test]

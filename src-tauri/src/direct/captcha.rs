@@ -7,7 +7,7 @@ use super::links;
 use percent_encoding::percent_decode_str;
 use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
-use tauri::webview::NewWindowResponse;
+use tauri::webview::{DownloadEvent, NewWindowResponse};
 use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 
 /// The popup has no access to app commands: its only way to report links is to
@@ -286,6 +286,32 @@ pub fn start_click_n_load(app: AppHandle) {
     });
 }
 
+/// Queues a file the page window started downloading, with the window's cookies
+/// and user agent, then closes the window.
+async fn on_browser_download(app: AppHandle, label: String, url: Url) {
+    if !matches!(url.scheme(), "http" | "https") {
+        return;
+    }
+    let cookie = app
+        .get_webview_window(&label)
+        .and_then(|w| w.cookies_for_url(url.clone()).ok())
+        .map(|cookies| cookies.iter().map(|c| format!("{}={}", c.name(), c.value())).collect::<Vec<_>>().join("; "))
+        .filter(|c| !c.is_empty());
+    let engine = app.state::<Engine>().inner().clone();
+    match engine.add_from_browser(url.as_str(), cookie).await {
+        Ok(name) => {
+            tracing::info!("browser download queued: {name}");
+            if let Some(window) = app.get_webview_window(&label) {
+                let _ = window.close();
+            }
+        }
+        Err(e) => {
+            tracing::warn!("browser download refused: {e}");
+            let _ = app.emit("clipboard-error", format!("The download couldn't be taken over: {e}"));
+        }
+    }
+}
+
 fn in_domain(host: &str, domain: &str) -> bool {
     host == domain || host.ends_with(&format!(".{domain}"))
 }
@@ -307,7 +333,8 @@ fn belongs_to_page(target: &Url, page: &Url) -> bool {
 
 #[tauri::command]
 pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> {
-    if !links::is_link_protector(&url) {
+    let browser_host = links::needs_browser(&url);
+    if !browser_host && !links::is_link_protector(&url) {
         return Err("Not a protected link".into());
     }
     let page = Url::parse(&url).map_err(|e| e.to_string())?;
@@ -319,9 +346,22 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
     let label = format!("captcha-{}", NEXT_POPUP.fetch_add(1, Ordering::Relaxed));
     let (nav_app, nav_label, nav_source, nav_page) = (app.clone(), label.clone(), url.clone(), page.clone());
     let (win_app, win_label, win_source, win_page) = (app.clone(), label.clone(), url.clone(), page.clone());
-    WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(page))
-        .title("Solve the captcha")
-        .inner_size(620.0, 520.0)
+    let (dl_app, dl_label) = (app.clone(), label.clone());
+    let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(page))
+        .title(if browser_host { "Start the download" } else { "Solve the captcha" })
+        .inner_size(620.0, 520.0);
+    if browser_host {
+        // The site checks the browser, then the user starts the download on its
+        // page; that download goes to the queue with this window's session.
+        builder = builder.user_agent(links::BROWSER_UA).on_download(move |_, event| {
+            if let DownloadEvent::Requested { url, .. } = event {
+                let job = on_browser_download(dl_app.clone(), dl_label.clone(), url.clone());
+                tauri::async_runtime::spawn(job);
+            }
+            false
+        });
+    }
+    builder
         .initialization_script(&script)
         .on_navigation(move |target| {
             let reported = target.host_str() == Some(REPORT_HOST);
