@@ -370,8 +370,11 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
                     true
                 }
                 DownloadEvent::Finished { url, success, .. } => {
+                    // WebKit calls this on the main thread, outside the async runtime
+                    // the queue needs: the work runs there instead.
                     let target = saving.lock().unwrap().remove(url.as_str());
-                    on_browser_download(dl_app.clone(), dl_label.clone(), url.to_string(), target, success);
+                    let (app, label, url) = (dl_app.clone(), dl_label.clone(), url.to_string());
+                    tauri::async_runtime::spawn(async move { on_browser_download(app, label, url, target, success) });
                     true
                 }
                 _ => true,
