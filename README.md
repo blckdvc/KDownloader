@@ -4,7 +4,9 @@ A light download manager and BitTorrent client for macOS, named as a nod to JDow
 
 The torrent side is Transmission-weight, built on the
 [`librqbit`](https://crates.io/crates/librqbit) engine and [Tauri 2](https://tauri.app).
-Next to it, a **Direct Download** tab handles links, hosters and premium accounts (see below).
+Next to it, a **Direct Download** tab handles links, hosters and premium accounts, and
+downloads from pixeldrain, transfer.it, MEGA, WeTransfer, buzzheavier and workupload
+without an account (see below).
 
 No bundled browser: the UI runs in the macOS system WebView, so the app is a
 small native binary rather than a 150 MB Electron bundle.
@@ -90,7 +92,7 @@ KDownloader/
 ├── src-tauri/              Rust backend (Tauri app)
 │   ├── src/lib.rs          torrent session + Tauri commands
 │   ├── src/menu.rs         menu bar and shortcuts
-│   ├── src/direct/         Direct Download engine, link grabbing, debrid providers, Click'n'Load
+│   ├── src/direct/         Direct Download engine, link grabbing, debrid providers, file-transfer services, Click'n'Load
 │   ├── src/rss.rs          RSS auto-download
 │   ├── src/watch.rs        watch folder
 │   ├── src/upnp.rs         UPnP port forwarding
@@ -171,21 +173,20 @@ extraction, and premium accounts through the official APIs of Real-Debrid, AllDe
 Premiumize, Debrid-Link, Uploadedpremiumlink, TorBox, Mega-Debrid, Cocoleech and
 Fakirdebrid. API keys are stored in the macOS Keychain.
 
-Free hosts with a direct file address work without an account: **pixeldrain** share
-links (`/u/…`) download with resume, and albums (`/l/…`) expand into their files.
-File-transfer services work the same way. **transfer.it** transfers and public **MEGA**
-file and folder links list their files with their names and folders, and
-download with resume and several connections. KDownloader decrypts MEGA's
-files as they arrive, as MEGA's website does. A single MEGA file goes through
-your debrid account instead when one handles MEGA, which avoids MEGA's free
-quota. **WeTransfer** links (including `we.tl`) download the whole transfer, as a ZIP
-when it holds several files. Their file addresses expire, so each download
-asks for a fresh one.
-Hosts that check for a real browser before showing a file, such as **workupload** and
-**buzzheavier**, open in a small window. Once the site's check has passed, the
-window starts the download by itself: buzzheavier files go to the queue, with
-resume, and workupload files are saved by the window in your download folder.
-Either way they appear in the queue and are extracted like the others.
+### Free hosts, no account needed
+
+| Host | Links | How it downloads |
+|---|---|---|
+| **pixeldrain** | `pixeldrain.com/u/…`, albums `/l/…` | Directly, with resume. An album expands into its files. |
+| **transfer.it** | `transfer.it/t/…` | Through MEGA's API: every file is listed with its name and folder, then downloaded with resume and several connections, and decrypted as it arrives. |
+| **MEGA** | `mega.nz/file/…#key`, `mega.nz/folder/…#key`, older `#!…` / `#F!…` links | The same way as transfer.it. A single file goes through your debrid account instead when one handles MEGA, which avoids MEGA's free quota. |
+| **WeTransfer** | `wetransfer.com/downloads/…`, `we.tl/…` | Through its API, with resume. A transfer of several files comes as a ZIP. |
+| **buzzheavier** | `buzzheavier.com/…`, `bzzhr.co/…` | A small window passes the site's browser check and starts the download by itself. The file then goes to the queue, with resume. |
+| **workupload** | `workupload.com/file/…` | A small window passes the site's browser check and starts the download by itself. The window saves the file in your download folder. |
+
+The addresses these services hand out expire, so each download asks for a fresh
+one. Their files appear in the queue and are extracted like the others. Other
+hosts need a premium account from one of the services above.
 
 Copied links are routed automatically: magnets and `.torrent` URLs prefill the Torrent
 tab, and other file links start at once, or wait in the Link Grabber if you turn that off. The code lives in `src-tauri/src/direct/`
