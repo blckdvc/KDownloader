@@ -1,34 +1,36 @@
 # KDownloader
 
-A light download manager and BitTorrent client for macOS, named as a nod to JDownloader.
+A light BitTorrent client and download manager for macOS, named as a nod to JDownloader.
 
-The torrent side is Transmission-weight, built on the
-[`librqbit`](https://crates.io/crates/librqbit) engine and [Tauri 2](https://tauri.app).
-Next to it, a **Direct Download** tab handles links, hosters and premium accounts, and
-downloads from pixeldrain, transfer.it, MEGA, WeTransfer, buzzheavier and workupload
-without an account (see below).
+- **Torrents**, Transmission-weight, on the [`librqbit`](https://crates.io/crates/librqbit) engine
+- **Direct Download** with nine premium debrid services and six free hosts
+- Native and small: the UI runs in the macOS system WebView through [Tauri 2](https://tauri.app),
+  not in a 150 MB Electron bundle
 
-No bundled browser: the UI runs in the macOS system WebView, so the app is a
-small native binary rather than a 150 MB Electron bundle.
-
-![KDownloader — torrents, with the Details panel on the peers](docs/screenshot-torrents.png)
+![KDownloader — torrents in dark mode, with the Details panel on the peers](docs/screenshot-torrents-dark.png)
 
 ### Support the project
 Free and open-source 🙂 — if you feel like it, buy me a few tokens:
 
 [![Buy me tokens](docs/buy-me-tokens.png)](https://paypal.me/lbenh)
 
-## Features
+**Contents:** [Torrents](#torrents) · [Direct Download](#direct-download) ·
+[Bandwidth](#bandwidth) · [Keyboard](#keyboard) · [macOS integration](#macos-integration) ·
+[Install](#install-on-macos) · [Build](#build-from-source) · [Known limits](#known-limits)
 
-### Torrents
+## Torrents
 
-- Add torrents by **magnet link**, **http(s) `.torrent` URL** or **local `.torrent` file** (⌘O,
-  or as the system's default handler for magnets and `.torrent` files)
+![KDownloader — torrents in light mode, with the Details panel](docs/screenshot-torrents-light.png)
+
+### Adding and managing
+
+- Add torrents by **magnet link**, **http(s) `.torrent` URL** or **local `.torrent` file** (⌘O),
+  or open them from anywhere: KDownloader can be the default handler for both
 - Start / pause / resume / force re-announce; remove, optionally moving the files to the Trash
 - Live progress, speeds, ETA, ratio, seeds and peers (with the tracker's swarm counts)
 - **Details panel**: general info, trackers, connected peers, and per-file content
 - **Per-file selection**: choose which files to download, at add time or later
-- **Per-torrent save path** and **categories / tags**, with a category filter
+- **Per-torrent save path** and **categories / tags**, with filters in the sidebar
 - **Resume across restarts** (session persistence + fastresume)
 
 ### Speed and scheduling
@@ -36,9 +38,6 @@ Free and open-source 🙂 — if you feel like it, buy me a few tokens:
 - **Global limits**, adjustable live
 - **Per-torrent limits**, set at add time or changed any time from the right-click menu (⇧⌘L)
 - **Scheduler**: alternate limits during a daily time window
-- **Bandwidth tab**: a live speed chart, plus a speed meter on the Dock icon
-
-![KDownloader — Bandwidth tab](docs/screenshot-bandwidth.png)
 
 ### Network and privacy
 
@@ -53,7 +52,7 @@ Free and open-source 🙂 — if you feel like it, buy me a few tokens:
   and binding to a network interface (useful with a VPN)
 - Logs show only the tracker host, since private-tracker URLs carry a passkey
 
-![KDownloader — Settings, network and privacy](docs/screenshot-settings.png)
+![KDownloader — torrent settings, network and privacy](docs/screenshot-settings-light.png)
 
 ### Automation
 
@@ -61,119 +60,105 @@ Free and open-source 🙂 — if you feel like it, buy me a few tokens:
   them to `.kdownloader-added`
 - **RSS auto-download**: polls feeds and adds items whose title matches your regex rules
 
-### Integrations
+## Direct Download
 
-Everything KDownloader connects to, in one place.
+A light download manager next to the torrent client, in the spirit of JDownloader.
 
-**Premium link generators** (Direct Download). Each connects with an API key through
-the service's official API. The key is stored in the macOS Keychain.
+![KDownloader — Direct Download queue in dark mode](docs/screenshot-direct-dark.png)
 
-| Service | Where to get the key |
+### Downloads
+
+- **Multi-connection HTTP downloads** with resume, a queue you can reorder, and a speed limit
+- **Packages**: files of one release are grouped, and filtered in the sidebar
+- **Automatic extraction**: RAR sets (multi-volume too, once their last volume arrives), ZIP, tar and
+  7z, with the archive deleted afterwards if you want. A failed extraction can be retried from
+  the right-click menu.
+- **Link Grabber**: paste or copy links, check them (online, size, which service will fetch
+  them), then add all or some
+- **Clipboard watching**: copied links are routed automatically. Magnets and `.torrent` URLs
+  prefill the Torrent tab, and other file links start at once, or wait in the Link Grabber if
+  you turn that off.
+- A notification when a package finishes, and deleted files go to the Trash
+
+![KDownloader — Link Grabber in light mode](docs/screenshot-grabber-light.png)
+
+### Supported debrid services
+
+Premium link generators, each through its official API. Connect an account with its API key
+in **Settings → Premium accounts**; the key is stored in the macOS Keychain. Only links from
+hosts your account supports are sent to the service, and when several accounts handle a host,
+the first one that works is used.
+
+| Service | Where to get the API key |
 |---|---|
-| Real-Debrid | [real-debrid.com/apitoken](https://real-debrid.com/apitoken) |
-| AllDebrid | [alldebrid.com/apikeys](https://alldebrid.com/apikeys/) |
-| Premiumize | [premiumize.me/account](https://www.premiumize.me/account) |
-| Debrid-Link | [debrid-link.com/webapp/apikey](https://debrid-link.com/webapp/apikey) |
-| TorBox | [torbox.app/settings](https://torbox.app/settings) |
-| Mega-Debrid | [mega-debrid.eu](https://www.mega-debrid.eu/index.php?page=api) |
-| Uploadedpremiumlink | [uploadedpremiumlink.net/myaccount](https://www.uploadedpremiumlink.net/myaccount/) |
-| Cocoleech | [members.cocoleech.com/settings](https://members.cocoleech.com/settings) |
-| Fakirdebrid | [fakirdebrid.net](https://fakirdebrid.net/api/login.php) |
+| **Real-Debrid** | [real-debrid.com/apitoken](https://real-debrid.com/apitoken) |
+| **AllDebrid** | [alldebrid.com/apikeys](https://alldebrid.com/apikeys/) |
+| **Premiumize** | [premiumize.me/account](https://www.premiumize.me/account) |
+| **Debrid-Link** | [debrid-link.com/webapp/apikey](https://debrid-link.com/webapp/apikey) |
+| **TorBox** | [torbox.app/settings](https://torbox.app/settings) |
+| **Mega-Debrid** | [mega-debrid.eu](https://www.mega-debrid.eu/index.php?page=api) |
+| **Uploadedpremiumlink** | [uploadedpremiumlink.net/myaccount](https://www.uploadedpremiumlink.net/myaccount/) |
+| **Cocoleech** | [members.cocoleech.com/settings](https://members.cocoleech.com/settings) |
+| **Fakirdebrid** | [fakirdebrid.net](https://fakirdebrid.net/api/login.php) |
 
-**Free hosts**, with no account needed: pixeldrain, transfer.it, MEGA, WeTransfer,
-buzzheavier and workupload. The [Direct Download](#direct-download) section explains
-how each one downloads.
+![KDownloader — premium accounts in dark mode](docs/screenshot-accounts-dark.png)
 
-**Link protectors**: keeplinks, FileCrypt, SafeLinking, Linkvertise and ouo.io open in
-a small window. You solve the captcha there, and the links it reveals go to the queue.
-**Click'n'Load** is also supported, on `127.0.0.1:9666`, for protectors and download
-pages that offer it.
+### Free hosts, no account needed
 
-**macOS**
-- Default handler for magnet links and `.torrent` files
-- Clipboard watching: copied links are routed to the right tab
-- Keychain for API keys
-- Notifications when downloads finish
-- A speed meter on the Dock icon
-- Show in Finder, and deleted files go to the Trash
+| Host | Links | How it downloads |
+|---|---|---|
+| **pixeldrain** | `pixeldrain.com/u/…`, albums `/l/…` | Directly, with resume. An album expands into its files. |
+| **transfer.it** | `transfer.it/t/…` | Through MEGA's API: every file is listed with its name and folder, then downloaded with resume and several connections, and decrypted as it arrives. |
+| **MEGA** | `mega.nz/file/…#key`, `mega.nz/folder/…#key`, older `#!…` / `#F!…` links | The same way as transfer.it. A single file goes through your debrid account instead when one handles MEGA, which avoids MEGA's free quota. |
+| **WeTransfer** | `wetransfer.com/downloads/…`, `we.tl/…` | Through its API, with resume. A transfer of several files comes as a ZIP. |
+| **buzzheavier** | `buzzheavier.com/…`, `bzzhr.co/…` | A small window passes the site's browser check and starts the download by itself. The file then goes to the queue, with resume. |
+| **workupload** | `workupload.com/file/…` | A small window passes the site's browser check and starts the download by itself. The window saves the file in your download folder. |
 
-**Network and torrents**
-- UPnP port forwarding (IGD v1 and v2)
-- SOCKS5 proxy
-- P2P-format IP block lists
-- RSS feeds
-- A watch folder for `.torrent` files
+The addresses these services hand out expire, so each download asks for a fresh one. Their
+files appear in the queue and are extracted like the others. Other hosts need one of the
+debrid services above.
 
-### Keyboard
+### Link protectors and Click'n'Load
+
+- **Link protectors**: keeplinks, FileCrypt, SafeLinking, Linkvertise and ouo.io open in a
+  small window. You solve the captcha there yourself, and the links it reveals go to the queue.
+- **Click'n'Load**: KDownloader listens on `127.0.0.1:9666`. Links from a known protector
+  start at once, and links from any other page wait in the Link Grabber.
+
+Out of scope: captcha solving, dodging hoster limits, container decryption, protected streams.
+
+## Bandwidth
+
+A live chart of torrent and Direct Download speeds over the last 1, 5 or 30 minutes, with the
+current, peak and average speed of each, plus a speed meter on the Dock icon.
+
+![KDownloader — Bandwidth tab in dark mode](docs/screenshot-bandwidth-dark.png)
+
+## Keyboard
 
 A native menu bar with Transmission-style shortcuts: ⌘O open, ⌘U add links, ⌘1–4 tabs, ⌘I details,
 ⌘/ and ⌘. resume / pause, ⌥⌘/ and ⌥⌘. for everything, ⌘R show in Finder, ⌥⌘↑↓ queue order, ⌘, settings.
 Lists take arrows, ⇧-arrows, Home/End, Page Up/Down, Space (pause/resume), Return, ⌫ (remove)
 and ⌥⌘⌫ (move to Trash). Press **?** for the full list.
 
-![KDownloader — keyboard shortcuts](docs/screenshot-shortcuts.png)
+![KDownloader — keyboard shortcuts in dark mode](docs/screenshot-shortcuts-dark.png)
 
-### Not included / known limits
+## macOS integration
 
-- **Sequential download** is not offered: the app doesn't expose a streaming-order mode.
-  Per-file selection is the closest control.
-- **Search plugins** (qBittorrent-style site scrapers) are intentionally not bundled: that's a separate
-  subsystem that scrapes torrent indexers, with real legal/ToS considerations. Can be added later against
-  a legitimate indexer API if you want it.
-- Network settings (port, µTP, proxy, block list, extra trackers, peer limit, encryption) take effect after
-  a restart. Changing the global download folder applies immediately to newly added torrents;
-  already-added torrents keep their folder.
-- The engine is a vendored copy of librqbit with MSE support (rqbit PR #633) and a few patches,
-  listed in `src-tauri/vendor/rqbit/KDOWNLOADER-PATCHES.md`.
+- Light and dark mode, following the system
+- Default handler for magnet links and `.torrent` files
+- Clipboard watching, routing copied links to the right tab
+- API keys in the Keychain
+- Notifications when downloads finish
+- A speed meter on the Dock icon
+- Show in Finder, and deleted files go to the Trash
 
 All app settings live in `~/Library/Application Support/com.kdownloader.desktop/`.
 
-## Project layout
-
-```
-KDownloader/
-├── src-tauri/              Rust backend (Tauri app)
-│   ├── src/lib.rs          torrent session + Tauri commands
-│   ├── src/menu.rs         menu bar and shortcuts
-│   ├── src/direct/         Direct Download engine, link grabbing, debrid providers, file-transfer services, Click'n'Load
-│   ├── src/rss.rs          RSS auto-download
-│   ├── src/watch.rs        watch folder
-│   ├── src/upnp.rs         UPnP port forwarding
-│   ├── src/dock.rs         Dock speed meter
-│   ├── src/handler.rs      default handler for magnets and .torrent files
-│   ├── vendor/rqbit/       patched librqbit (MSE encryption)
-│   └── tauri.conf.json
-└── ui/                     Frontend (vanilla HTML/CSS/JS, no bundler, no npm)
-    ├── index.html, styles.css
-    ├── table.js            shared list, menu and shortcut code
-    ├── main.js             Torrents tab
-    ├── direct.js           Direct Download tab
-    └── bandwidth.js        Bandwidth tab
-```
-
-## Develop
-
-```sh
-cd src-tauri
-cargo tauri dev
-```
-
-## Build a distributable app + .dmg
-
-```sh
-cd src-tauri
-cargo tauri build
-```
-
-Output lands in `src-tauri/target/release/bundle/`:
-
-- `macos/KDownloader.app` — the application
-- `dmg/KDownloader_0.2.3_aarch64.dmg` — a drag-to-install disk image
-
-> The build is ad-hoc signed. See **Install on macOS** below for why that
-> matters for automatic UPnP, and how to fix it for free.
-
 ## Install on macOS
+
+Download the `.dmg` from the [latest release](https://github.com/blckdvc/KDownloader/releases/latest),
+then drag **KDownloader** to Applications.
 
 KDownloader is not Apple-notarized, so after you download or build it, do a one-time
 local signing step — otherwise macOS silently blocks the app's **local network**
@@ -202,49 +187,74 @@ clients do, and the permission sticks.
   the paid, turnkey version of what this script does for free.
 - **Linux / Windows:** no signing needed; UPnP works out of the box.
 
+## Build from source
+
+Run in development:
+
+```sh
+cd src-tauri
+cargo tauri dev
+```
+
+Build the app and a `.dmg`:
+
+```sh
+cd src-tauri
+cargo tauri build
+```
+
+Output lands in `src-tauri/target/release/bundle/`:
+
+- `macos/KDownloader.app` — the application
+- `dmg/KDownloader_0.2.3_aarch64.dmg` — a drag-to-install disk image
+
+> The build is ad-hoc signed. See **Install on macOS** above for why that
+> matters for automatic UPnP, and how to fix it for free.
+
+The Direct Download engine is independent of Tauri and tested with `cargo test direct::`.
+
+## Known limits
+
+- **Sequential download** is not offered: the app doesn't expose a streaming-order mode.
+  Per-file selection is the closest control.
+- **Search plugins** (qBittorrent-style site scrapers) are intentionally not bundled: that's a separate
+  subsystem that scrapes torrent indexers, with real legal/ToS considerations. Can be added later against
+  a legitimate indexer API if you want it.
+- Network settings (port, µTP, proxy, block list, extra trackers, peer limit, encryption) take effect after
+  a restart. Changing the global download folder applies immediately to newly added torrents;
+  already-added torrents keep their folder.
+- The engine is a vendored copy of librqbit with MSE support (rqbit PR #633) and a few patches,
+  listed in `src-tauri/vendor/rqbit/KDOWNLOADER-PATCHES.md`.
+
+## Project layout
+
+```
+KDownloader/
+├── src-tauri/              Rust backend (Tauri app)
+│   ├── src/lib.rs          torrent session + Tauri commands
+│   ├── src/menu.rs         menu bar and shortcuts
+│   ├── src/direct/         Direct Download engine, link grabbing, debrid providers, file-transfer services, Click'n'Load
+│   ├── src/rss.rs          RSS auto-download
+│   ├── src/watch.rs        watch folder
+│   ├── src/upnp.rs         UPnP port forwarding
+│   ├── src/dock.rs         Dock speed meter
+│   ├── src/handler.rs      default handler for magnets and .torrent files
+│   ├── vendor/rqbit/       patched librqbit (MSE encryption)
+│   └── tauri.conf.json
+└── ui/                     Frontend (vanilla HTML/CSS/JS, no bundler, no npm)
+    ├── index.html, styles.css
+    ├── table.js            shared list, menu and shortcut code
+    ├── main.js             Torrents tab
+    ├── direct.js           Direct Download tab
+    └── bandwidth.js        Bandwidth tab
+```
+
 ## Possible next steps
 
 - RSS "smart episode" filters and per-feed scheduling
 - Search against a legitimate indexer API (opt-in)
 - Applying network settings without a restart
 
-## Direct Download
-
-The **Direct Download** tab is a light download manager next to the torrent client:
-link grabbing, multi-connection HTTP downloads with resume, packages, automatic
-extraction, and premium accounts through the official APIs of Real-Debrid, AllDebrid,
-Premiumize, Debrid-Link, Uploadedpremiumlink, TorBox, Mega-Debrid, Cocoleech and
-Fakirdebrid. API keys are stored in the macOS Keychain.
-
-### Free hosts, no account needed
-
-| Host | Links | How it downloads |
-|---|---|---|
-| **pixeldrain** | `pixeldrain.com/u/…`, albums `/l/…` | Directly, with resume. An album expands into its files. |
-| **transfer.it** | `transfer.it/t/…` | Through MEGA's API: every file is listed with its name and folder, then downloaded with resume and several connections, and decrypted as it arrives. |
-| **MEGA** | `mega.nz/file/…#key`, `mega.nz/folder/…#key`, older `#!…` / `#F!…` links | The same way as transfer.it. A single file goes through your debrid account instead when one handles MEGA, which avoids MEGA's free quota. |
-| **WeTransfer** | `wetransfer.com/downloads/…`, `we.tl/…` | Through its API, with resume. A transfer of several files comes as a ZIP. |
-| **buzzheavier** | `buzzheavier.com/…`, `bzzhr.co/…` | A small window passes the site's browser check and starts the download by itself. The file then goes to the queue, with resume. |
-| **workupload** | `workupload.com/file/…` | A small window passes the site's browser check and starts the download by itself. The window saves the file in your download folder. |
-
-The addresses these services hand out expire, so each download asks for a fresh
-one. Their files appear in the queue and are extracted like the others. Other
-hosts need a premium account from one of the services above.
-
-Copied links are routed automatically: magnets and `.torrent` URLs prefill the Torrent
-tab, and other file links start at once, or wait in the Link Grabber if you turn that off. The code lives in `src-tauri/src/direct/`
-and `ui/direct.js`; the engine is independent of Tauri and tested with `cargo test direct::`.
-
-Multi-volume RAR sets extract once their last volume arrives, and a failed extraction
-can be retried from the right-click menu. Deleted files go to the Trash.
-
-Link protectors open in a small window where you solve the captcha yourself. KDownloader also
-listens for Click'n'Load on `127.0.0.1:9666`: links from a known protector start at once,
-and links from any other page wait in the Link Grabber.
-
-Out of scope: captcha solving, dodging hoster limits, container decryption, protected streams.
-
-![KDownloader — Direct Download queue](docs/screenshot-direct.png)
-![KDownloader — Link Grabber](docs/screenshot-grabber.png)
+---
 
 The screenshots use made-up demo data: invented names, example.org URLs and reserved example IP addresses.
