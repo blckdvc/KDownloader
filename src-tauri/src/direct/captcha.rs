@@ -6,8 +6,11 @@ use super::engine::Engine;
 use super::links;
 use percent_encoding::percent_decode_str;
 use serde::Serialize;
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use tauri::webview::NewWindowResponse;
+use std::sync::{Arc, Mutex};
+use tauri::webview::{DownloadEvent, NewWindowResponse};
 use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 
 /// The popup has no access to app commands: its only way to report links is to
@@ -286,6 +289,25 @@ pub fn start_click_n_load(app: AppHandle) {
     });
 }
 
+/// Lists the file the page window finished downloading under the page's link,
+/// takes that link out of the Link Grabber, then closes the window.
+fn on_browser_download(app: AppHandle, label: String, source: String, url: String, target: Option<PathBuf>, success: bool) {
+    match target.filter(|t| success && t.exists()) {
+        Some(path) => {
+            tracing::info!("browser download finished: {}", path.display());
+            app.state::<Engine>().add_downloaded(&source, path);
+            let _ = app.emit("page-downloaded", &source);
+            if let Some(window) = app.get_webview_window(&label) {
+                let _ = window.close();
+            }
+        }
+        None => {
+            tracing::warn!("browser download failed: {url}");
+            let _ = app.emit("dd-error", "The download in the page window failed");
+        }
+    }
+}
+
 fn in_domain(host: &str, domain: &str) -> bool {
     host == domain || host.ends_with(&format!(".{domain}"))
 }
@@ -307,23 +329,68 @@ fn belongs_to_page(target: &Url, page: &Url) -> bool {
 
 #[tauri::command]
 pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> {
-    if !links::is_link_protector(&url) {
+    let browser_host = links::needs_browser(&url);
+    if !browser_host && !links::is_link_protector(&url) {
         return Err("Not a protected link".into());
     }
     let page = Url::parse(&url).map_err(|e| e.to_string())?;
-    let hosters = app.state::<Engine>().accounts().hoster_domains().await;
-    let mut script = REPORT_LINKS.replace("__HOSTERS__", &serde_json::json!(hosters).to_string());
-    script.push_str(CATCH_CLICK_N_LOAD);
-    let keeplinks = page.host_str().is_some_and(|h| h.contains("keeplinks."));
-    script.push_str(if keeplinks { FOCUS_KEEPLINKS } else { FOCUS_CAPTCHA });
+    // A browser host's page is shown as it is: the protector scripts would hide
+    // it, since it has no captcha to keep in view.
+    let mut script = String::new();
+    if !browser_host {
+        let hosters = app.state::<Engine>().accounts().hoster_domains().await;
+        script = REPORT_LINKS.replace("__HOSTERS__", &serde_json::json!(hosters).to_string());
+        script.push_str(CATCH_CLICK_N_LOAD);
+        let keeplinks = page.host_str().is_some_and(|h| h.contains("keeplinks."));
+        script.push_str(if keeplinks { FOCUS_KEEPLINKS } else { FOCUS_CAPTCHA });
+    }
     let label = format!("captcha-{}", NEXT_POPUP.fetch_add(1, Ordering::Relaxed));
     let (nav_app, nav_label, nav_source, nav_page) = (app.clone(), label.clone(), url.clone(), page.clone());
     let (win_app, win_label, win_source, win_page) = (app.clone(), label.clone(), url.clone(), page.clone());
-    WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(page))
-        .title("Solve the captcha")
-        .inner_size(620.0, 520.0)
+    let (dl_app, dl_label, dl_source) = (app.clone(), label.clone(), url.clone());
+    let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(page))
+        .title(if browser_host { "Start the download" } else { "Solve the captcha" })
+        .inner_size(620.0, 520.0);
+    if browser_host {
+        // The site checks the browser, then the user starts the download on its
+        // page; that download goes to the queue with this window's session.
+        // The site only serves the file to the browser that passed its check,
+        // so the window downloads it itself, into the queue's folder.
+        let saving = Arc::new(Mutex::new(HashMap::<String, PathBuf>::new()));
+        builder = builder.user_agent(links::BROWSER_UA).on_download(move |_, event| {
+            match event {
+                DownloadEvent::Requested { url, destination } => {
+                    if !matches!(url.scheme(), "http" | "https") {
+                        return false;
+                    }
+                    let name = destination.file_name().map(|n| n.to_string_lossy().into_owned());
+                    let name = name.unwrap_or_else(|| links::name_from_url(url.as_str()));
+                    let target = dl_app.state::<Engine>().browser_destination(&name);
+                    *destination = target.clone();
+                    saving.lock().unwrap().insert(url.to_string(), target);
+                    let _ = dl_app.emit("dd-info", format!("Downloading {name} in the page window…"));
+                    true
+                }
+                DownloadEvent::Finished { url, success, .. } => {
+                    // WebKit calls this on the main thread, outside the async runtime
+                    // the queue needs: the work runs there instead.
+                    let target = saving.lock().unwrap().remove(url.as_str());
+                    let (app, label, source) = (dl_app.clone(), dl_label.clone(), dl_source.clone());
+                    let url = url.to_string();
+                    tauri::async_runtime::spawn(async move { on_browser_download(app, label, source, url, target, success) });
+                    true
+                }
+                _ => true,
+            }
+        });
+    }
+    builder
         .initialization_script(&script)
         .on_navigation(move |target| {
+            // The site's page leads to its file wherever it's served from.
+            if browser_host {
+                return matches!(target.scheme(), "http" | "https" | "about" | "blob" | "data");
+            }
             let reported = target.host_str() == Some(REPORT_HOST);
             if !reported && belongs_to_page(target, &nav_page) {
                 return true;
@@ -340,6 +407,15 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
             false
         })
         .on_new_window(move |target, _| {
+            if browser_host {
+                // A download link opening a tab: follow it here, where downloads are caught.
+                if matches!(target.scheme(), "http" | "https") {
+                    if let Some(window) = win_app.get_webview_window(&win_label) {
+                        let _ = window.navigate(target);
+                    }
+                }
+                return NewWindowResponse::Deny;
+            }
             if belongs_to_page(&target, &win_page) {
                 // FileCrypt opens each link this way. Elsewhere it's an ad script,
                 // and following it would reload the page and lose the captcha.
