@@ -123,7 +123,7 @@ cargo tauri build
 Output lands in `src-tauri/target/release/bundle/`:
 
 - `macos/KDownloader.app` — the application
-- `dmg/KDownloader_0.2.1_aarch64.dmg` — a drag-to-install disk image
+- `dmg/KDownloader_0.2.2_aarch64.dmg` — a drag-to-install disk image
 
 > The build is ad-hoc signed. See **Install on macOS** below for why that
 > matters for automatic UPnP, and how to fix it for free.
@@ -173,8 +173,8 @@ Fakirdebrid. API keys are stored in the macOS Keychain.
 
 Free hosts with a direct file address work without an account: **pixeldrain** share
 links (`/u/…`) download with resume, and albums (`/l/…`) expand into their files.
-Hosts that check for a real browser before showing a file, such as **workupload**,
-open in a small window: once the page is ready, start the download there. The
+Hosts that check for a real browser before showing a file, such as **workupload** and
+**buzzheavier**, open in a small window: once the page is ready, start the download there. The
 window saves the file in your download folder, and it then appears in the queue
 and is extracted like the others.
 
