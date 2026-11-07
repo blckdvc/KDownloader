@@ -557,6 +557,16 @@ impl Engine {
         }
     }
 
+    /// Queues a file whose address a page window found, after checking it.
+    pub async fn add_file(&self, url: &str) -> Result<(), String> {
+        let found = probe(&self.0.http, url).await;
+        if !found.online || found.html {
+            return Err(found.error.unwrap_or_else(|| "The site didn't hand over the file".into()));
+        }
+        self.add_with(vec![found], AddOptions::default());
+        Ok(())
+    }
+
     #[cfg(test)]
     pub fn add(&self, probes: Vec<Probe>) {
         self.add_with(probes, AddOptions::default());

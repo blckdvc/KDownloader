@@ -56,6 +56,45 @@ const REPORT_LINKS: &str = r#"(() => {
   addEventListener("load", later);
 })();"#;
 
+/// buzzheavier: once its browser check has passed, asks for the file the way
+/// its Download button does, then goes to the file's address, which the window
+/// hands to the queue.
+const START_BUZZHEAVIER: &str = r#"(() => {
+  if (window.top !== window.self) return;
+  let started = false;
+  const start = async () => {
+    const button = document.querySelector("a.download-btn[hx-get]");
+    if (started || !button) return;
+    started = true;
+    try {
+      const reply = await fetch(button.getAttribute("hx-get"), {
+        headers: { "HX-Request": "true", "HX-Current-URL": location.href },
+      });
+      const file = reply.headers.get("hx-redirect");
+      if (file) { location.href = new URL(file, location.href).href; return; }
+    } catch {}
+    started = false;
+  };
+  new MutationObserver(start).observe(document, { childList: true, subtree: true });
+  addEventListener("DOMContentLoaded", start);
+})();"#;
+
+/// workupload: once its browser check has passed, follows the page's Download
+/// button, whose page then starts the file in this window. Once per page, so
+/// that being sent back to it doesn't loop.
+const START_WORKUPLOAD: &str = r#"(() => {
+  if (window.top !== window.self) return;
+  const key = "kdownloader-started:" + location.pathname;
+  const start = () => {
+    const button = document.querySelector('a[href*="/start/"]');
+    if (!button || sessionStorage.getItem(key)) return;
+    sessionStorage.setItem(key, "1");
+    location.href = button.href;
+  };
+  new MutationObserver(start).observe(document, { childList: true, subtree: true });
+  addEventListener("DOMContentLoaded", start);
+})();"#;
+
 /// A page's Click'n'Load button posts its encrypted links to the local port, which
 /// a secure page may be refused. This catches that post, whichever way the page
 /// sends it, and reports what it carries, so the port isn't needed.
@@ -308,6 +347,24 @@ fn on_browser_download(app: AppHandle, label: String, source: String, url: Strin
     }
 }
 
+/// The page window found the file's own address: the queue downloads it, with
+/// resume and several connections, and the window closes.
+async fn on_file_found(app: AppHandle, label: String, source: String, file: String) {
+    tracing::info!("page window found the file of {source}");
+    match app.state::<Engine>().add_file(&file).await {
+        Ok(()) => {
+            let _ = app.emit("page-downloaded", &source);
+            if let Some(window) = app.get_webview_window(&label) {
+                let _ = window.close();
+            }
+        }
+        Err(e) => {
+            tracing::warn!("file from the page window refused: {e}");
+            let _ = app.emit("dd-error", format!("The page window's file couldn't be queued: {e}"));
+        }
+    }
+}
+
 fn in_domain(host: &str, domain: &str) -> bool {
     host == domain || host.ends_with(&format!(".{domain}"))
 }
@@ -337,6 +394,12 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
     // A browser host's page is shown as it is: the protector scripts would hide
     // it, since it has no captcha to keep in view.
     let mut script = String::new();
+    if links::is_buzzheavier(&url) {
+        script.push_str(START_BUZZHEAVIER);
+    }
+    if page.host_str().is_some_and(|h| h.trim_start_matches("www.") == "workupload.com") {
+        script.push_str(START_WORKUPLOAD);
+    }
     if !browser_host {
         let hosters = app.state::<Engine>().accounts().hoster_domains().await;
         script = REPORT_LINKS.replace("__HOSTERS__", &serde_json::json!(hosters).to_string());
@@ -389,6 +452,11 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
         .on_navigation(move |target| {
             // The site's page leads to its file wherever it's served from.
             if browser_host {
+                if links::is_buzzheavier_file(target) {
+                    let job = on_file_found(nav_app.clone(), nav_label.clone(), nav_source.clone(), target.to_string());
+                    tauri::async_runtime::spawn(job);
+                    return false;
+                }
                 return matches!(target.scheme(), "http" | "https" | "about" | "blob" | "data");
             }
             let reported = target.host_str() == Some(REPORT_HOST);
