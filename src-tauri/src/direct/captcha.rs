@@ -289,12 +289,14 @@ pub fn start_click_n_load(app: AppHandle) {
     });
 }
 
-/// Lists the file the page window finished downloading, then closes the window.
-fn on_browser_download(app: AppHandle, label: String, url: String, target: Option<PathBuf>, success: bool) {
+/// Lists the file the page window finished downloading under the page's link,
+/// takes that link out of the Link Grabber, then closes the window.
+fn on_browser_download(app: AppHandle, label: String, source: String, url: String, target: Option<PathBuf>, success: bool) {
     match target.filter(|t| success && t.exists()) {
         Some(path) => {
             tracing::info!("browser download finished: {}", path.display());
-            app.state::<Engine>().add_downloaded(&url, path);
+            app.state::<Engine>().add_downloaded(&source, path);
+            let _ = app.emit("page-downloaded", &source);
             if let Some(window) = app.get_webview_window(&label) {
                 let _ = window.close();
             }
@@ -345,7 +347,7 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
     let label = format!("captcha-{}", NEXT_POPUP.fetch_add(1, Ordering::Relaxed));
     let (nav_app, nav_label, nav_source, nav_page) = (app.clone(), label.clone(), url.clone(), page.clone());
     let (win_app, win_label, win_source, win_page) = (app.clone(), label.clone(), url.clone(), page.clone());
-    let (dl_app, dl_label) = (app.clone(), label.clone());
+    let (dl_app, dl_label, dl_source) = (app.clone(), label.clone(), url.clone());
     let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(page))
         .title(if browser_host { "Start the download" } else { "Solve the captcha" })
         .inner_size(620.0, 520.0);
@@ -373,8 +375,9 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
                     // WebKit calls this on the main thread, outside the async runtime
                     // the queue needs: the work runs there instead.
                     let target = saving.lock().unwrap().remove(url.as_str());
-                    let (app, label, url) = (dl_app.clone(), dl_label.clone(), url.to_string());
-                    tauri::async_runtime::spawn(async move { on_browser_download(app, label, url, target, success) });
+                    let (app, label, source) = (dl_app.clone(), dl_label.clone(), dl_source.clone());
+                    let url = url.to_string();
+                    tauri::async_runtime::spawn(async move { on_browser_download(app, label, source, url, target, success) });
                     true
                 }
                 _ => true,
