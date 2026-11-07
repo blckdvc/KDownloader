@@ -61,6 +61,49 @@ Free and open-source 🙂 — if you feel like it, buy me a few tokens:
   them to `.kdownloader-added`
 - **RSS auto-download**: polls feeds and adds items whose title matches your regex rules
 
+### Integrations
+
+Everything KDownloader connects to, in one place.
+
+**Premium link generators** (Direct Download). Each connects with an API key through
+the service's official API. The key is stored in the macOS Keychain.
+
+| Service | Where to get the key |
+|---|---|
+| Real-Debrid | [real-debrid.com/apitoken](https://real-debrid.com/apitoken) |
+| AllDebrid | [alldebrid.com/apikeys](https://alldebrid.com/apikeys/) |
+| Premiumize | [premiumize.me/account](https://www.premiumize.me/account) |
+| Debrid-Link | [debrid-link.com/webapp/apikey](https://debrid-link.com/webapp/apikey) |
+| TorBox | [torbox.app/settings](https://torbox.app/settings) |
+| Mega-Debrid | [mega-debrid.eu](https://www.mega-debrid.eu/index.php?page=api) |
+| Uploadedpremiumlink | [uploadedpremiumlink.net/myaccount](https://www.uploadedpremiumlink.net/myaccount/) |
+| Cocoleech | [members.cocoleech.com/settings](https://members.cocoleech.com/settings) |
+| Fakirdebrid | [fakirdebrid.net](https://fakirdebrid.net/api/login.php) |
+
+**Free hosts**, with no account needed: pixeldrain, transfer.it, MEGA, WeTransfer,
+buzzheavier and workupload. The [Direct Download](#direct-download) section explains
+how each one downloads.
+
+**Link protectors**: keeplinks, FileCrypt, SafeLinking, Linkvertise and ouo.io open in
+a small window. You solve the captcha there, and the links it reveals go to the queue.
+**Click'n'Load** is also supported, on `127.0.0.1:9666`, for protectors and download
+pages that offer it.
+
+**macOS**
+- Default handler for magnet links and `.torrent` files
+- Clipboard watching: copied links are routed to the right tab
+- Keychain for API keys
+- Notifications when downloads finish
+- A speed meter on the Dock icon
+- Show in Finder, and deleted files go to the Trash
+
+**Network and torrents**
+- UPnP port forwarding (IGD v1 and v2)
+- SOCKS5 proxy
+- P2P-format IP block lists
+- RSS feeds
+- A watch folder for `.torrent` files
+
 ### Keyboard
 
 A native menu bar with Transmission-style shortcuts: ⌘O open, ⌘U add links, ⌘1–4 tabs, ⌘I details,
