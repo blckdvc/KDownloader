@@ -88,7 +88,7 @@ pub fn is_file_host(url: &str) -> bool {
 
 /// Hosts that check for a real browser before showing a file. Their page opens
 /// in a window, which downloads the file itself into the queue's folder.
-const BROWSER_HOSTS: [&str; 1] = ["workupload.com"];
+const BROWSER_HOSTS: [&str; 3] = ["workupload.com", "buzzheavier.com", "bzzhr.co"];
 
 /// The page window's user agent: Safari's, which sites expect from a Mac.
 pub const BROWSER_UA: &str =
@@ -249,6 +249,13 @@ mod tests {
         assert!(needs_browser("https://www.workupload.com/file/2Jme2Awus9s"));
         assert!(!needs_browser("https://workupload.com/"));
         assert!(!needs_browser("https://pixeldrain.com/u/abc"));
+    }
+
+    #[test]
+    fn buzzheavier_files_open_in_a_browser() {
+        assert!(needs_browser("https://buzzheavier.com/f8k4y7jdmmyb"));
+        assert!(needs_browser("https://bzzhr.co/f8k4y7jdmmyb"));
+        assert!(!needs_browser("https://buzzheavier.com/"));
     }
 
     #[test]
