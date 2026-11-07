@@ -87,11 +87,10 @@ pub fn is_file_host(url: &str) -> bool {
 }
 
 /// Hosts that check for a real browser before showing a file. Their page opens
-/// in a window, and the download it starts is handed to the queue.
+/// in a window, which downloads the file itself into the queue's folder.
 const BROWSER_HOSTS: [&str; 1] = ["workupload.com"];
 
-/// The user agent of the page window, sent again with its cookies: a site may
-/// tie its session to the browser that passed its check.
+/// The page window's user agent: Safari's, which sites expect from a Mac.
 pub const BROWSER_UA: &str =
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
 
