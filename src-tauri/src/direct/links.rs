@@ -83,7 +83,7 @@ pub fn pixeldrain_list(url: &str) -> Option<String> {
 
 /// A host whose share links lead to files, so copying one is a download.
 pub fn is_file_host(url: &str) -> bool {
-    PIXELDRAIN_RE.is_match(url)
+    PIXELDRAIN_RE.is_match(url) || super::transfers::handles(url)
 }
 
 /// Hosts that check for a real browser before showing a file. Their page opens

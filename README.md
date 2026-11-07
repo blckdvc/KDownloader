@@ -123,7 +123,7 @@ cargo tauri build
 Output lands in `src-tauri/target/release/bundle/`:
 
 - `macos/KDownloader.app` — the application
-- `dmg/KDownloader_0.2.2_aarch64.dmg` — a drag-to-install disk image
+- `dmg/KDownloader_0.2.3_aarch64.dmg` — a drag-to-install disk image
 
 > The build is ad-hoc signed. See **Install on macOS** below for why that
 > matters for automatic UPnP, and how to fix it for free.
@@ -173,6 +173,14 @@ Fakirdebrid. API keys are stored in the macOS Keychain.
 
 Free hosts with a direct file address work without an account: **pixeldrain** share
 links (`/u/…`) download with resume, and albums (`/l/…`) expand into their files.
+File-transfer services work the same way. **transfer.it** transfers and public **MEGA**
+file and folder links list their files with their names and folders, and
+download with resume and several connections. KDownloader decrypts MEGA's
+files as they arrive, as MEGA's website does. A single MEGA file goes through
+your debrid account instead when one handles MEGA, which avoids MEGA's free
+quota. **WeTransfer** links (including `we.tl`) download the whole transfer, as a ZIP
+when it holds several files. Their file addresses expire, so each download
+asks for a fresh one.
 Hosts that check for a real browser before showing a file, such as **workupload** and
 **buzzheavier**, open in a small window. Once the site's check has passed, the
 window starts the download by itself: buzzheavier files go to the queue, with

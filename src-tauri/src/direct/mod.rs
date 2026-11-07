@@ -6,6 +6,7 @@ pub mod cnl;
 pub mod engine;
 pub mod links;
 pub mod providers;
+pub mod transfers;
 
 use engine::{AddOptions, Engine, Item, Probe, Settings};
 use providers::{Account, ApiError, Provider};
