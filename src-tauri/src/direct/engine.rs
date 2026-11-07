@@ -2,6 +2,7 @@
 //! extraction. Independent of Tauri so it can be tested on its own.
 
 use crate::direct::links;
+use crate::direct::transfers;
 use crate::direct::providers::{Accounts, Provider, Unlocked};
 use reqwest::header::{
     HeaderMap, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, ETAG, IF_RANGE,
@@ -253,6 +254,8 @@ struct Job {
     resumable: bool,
     validator: Option<String>,
     relinkable: bool,
+    /// Decrypts the bytes as they arrive, for MEGA's encrypted files.
+    cipher: Option<transfers::Cipher>,
 }
 
 struct Inner {
@@ -381,9 +384,21 @@ impl Engine {
             }
             urls = kept;
         }
-        let urls = self.expand_albums(urls).await;
+        // MEGA and transfer.it links list their files through the API; a single
+        // MEGA file goes through a debrid account when one handles MEGA.
+        let mut listed = Vec::new();
+        let mut rest = Vec::new();
+        for url in urls {
+            let by_account = transfers::is_single_mega_file(&url) && self.0.accounts.has_account_for(&url).await;
+            if transfers::is_listing(&url) && !by_account {
+                listed.extend(self.list_share(&url).await);
+            } else {
+                rest.push(url);
+            }
+        }
+        let urls = self.expand_albums(rest).await;
         let first = self.probe_all(urls).await;
-        let mut found = Vec::new();
+        let mut found = listed;
         let mut followed = Vec::new();
         for probe in first {
             if probe.html {
@@ -451,6 +466,34 @@ impl Engine {
             });
         }
         set.join_all().await
+    }
+
+    /// The files of a MEGA or transfer.it share, or the reason it can't be read.
+    async fn list_share(&self, url: &str) -> Vec<Probe> {
+        match transfers::list(&self.0.http, url).await {
+            Ok(entries) => entries
+                .into_iter()
+                .map(|e| Probe {
+                    url: e.url,
+                    name: e.name,
+                    package: e.package,
+                    size: e.size,
+                    resumable: true,
+                    online: true,
+                    ..Default::default()
+                })
+                .collect(),
+            Err(error) => {
+                let name = links::name_from_url(url);
+                vec![Probe {
+                    url: url.to_string(),
+                    package: links::package_name(&name),
+                    name,
+                    error: Some(error),
+                    ..Default::default()
+                }]
+            }
+        }
     }
 
     /// Replaces each pixeldrain album with the share links of its files.
@@ -855,13 +898,32 @@ impl Engine {
                 })
                 .ok_or(DlError::Cancelled)?;
         }
+        // A share's file address is temporary too, and MEGA's files are encrypted.
+        let shared = item.provider.is_none() && transfers::handles(&item.url);
+        let mut cipher = None;
+        if shared {
+            let resolved = tokio::select! {
+                _ = token.cancelled() => return Err(DlError::Cancelled),
+                r = transfers::resolve(&self.0.http, &item.url) => r,
+            };
+            let resolved = resolved.map_err(|e| {
+                if e.starts_with("connection") || e.contains("temporarily") || e.contains("quota") {
+                    DlError::Outage(e)
+                } else {
+                    DlError::Fatal(e)
+                }
+            })?;
+            cipher = resolved.cipher;
+            item = self.update(id, |it| { it.direct = Some(resolved.url); it.clone() }).ok_or(DlError::Cancelled)?;
+        }
+        let generated = item.provider.is_some() || shared;
         let target = item.direct.clone().unwrap_or_else(|| links::file_url(&item.url));
-        if fresh || item.provider.is_some() {
+        if fresh || generated {
             let info = tokio::select! {
                 _ = token.cancelled() => return Err(DlError::Cancelled),
                 p = probe(&self.0.http, &target) => p,
             };
-            if !info.online && link_is_fresh && item.provider.is_some() {
+            if !info.online && link_is_fresh && generated {
                 return Err(DlError::Relink);
             }
             if !info.online {
@@ -920,7 +982,8 @@ impl Engine {
                 part: part.clone(),
                 resumable: item.resumable,
                 validator: item.validator.clone(),
-                relinkable: item.provider.is_some(),
+                relinkable: generated,
+                cipher: cipher.clone(),
             };
             set.spawn(self.clone().run_segment(job, group.clone()));
         }
@@ -1004,6 +1067,8 @@ impl Engine {
         let mut remaining = segment.end.map(|e| e + 1 - pos);
         let mut progressed = false;
         let mut committed = Instant::now();
+        // The file offset of the next byte received, which the cipher needs.
+        let mut received = pos;
         let outcome = loop {
             let next = tokio::select! {
                 _ = token.cancelled() => break Err(None),
@@ -1019,7 +1084,15 @@ impl Engine {
                         _ = token.cancelled() => break Err(None),
                         _ = self.0.limiter.take(n) => {}
                     }
-                    buf.extend_from_slice(&chunk);
+                    match &job.cipher {
+                        Some(cipher) => {
+                            let mut plain = chunk.to_vec();
+                            cipher.apply(received, &mut plain);
+                            buf.extend_from_slice(&plain);
+                        }
+                        None => buf.extend_from_slice(&chunk),
+                    }
+                    received += n;
                     if let Some(left) = remaining.as_mut() {
                         *left -= n;
                     }
@@ -1437,6 +1510,9 @@ async fn inspect(http: &Client, accounts: &Accounts, url: &str) -> Probe {
                     ..Default::default()
                 };
             }
+            if transfers::handles(url) {
+                return inspect_share(http, url).await;
+            }
             let mut result = probe(http, &links::file_url(url)).await;
             result.url = url.to_string();
             // A hoster answers with its landing page, or blocks us outright.
@@ -1475,6 +1551,22 @@ async fn inspect(http: &Client, accounts: &Accounts, url: &str) -> Probe {
 
 /// A pooled connection the server just closed, or a passing outage, must not
 /// read as a dead link.
+/// A share link whose file address is generated: checks it with a fresh one.
+async fn inspect_share(http: &Client, url: &str) -> Probe {
+    match transfers::resolve(http, url).await {
+        Ok(resolved) => {
+            let mut result = probe(http, &resolved.url).await;
+            result.url = url.to_string();
+            result.direct = Some(resolved.url);
+            result
+        }
+        Err(error) => {
+            let name = links::name_from_url(url);
+            Probe { url: url.to_string(), package: links::package_name(&name), name, error: Some(error), ..Default::default() }
+        }
+    }
+}
+
 async fn probe(http: &Client, url: &str) -> Probe {
     let mut result = probe_once(http, url).await;
     for attempt in 0..PROBE_RETRIES {

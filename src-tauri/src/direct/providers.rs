@@ -205,6 +205,20 @@ impl Accounts {
         last.map(Err)
     }
 
+    /// Whether a connected account can fetch this link.
+    pub async fn has_account_for(&self, url: &str) -> bool {
+        let Some(host) = Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase))
+        else {
+            return false;
+        };
+        for provider in Provider::ALL {
+            if self.has_key(provider) && self.supports(provider, &host).await {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Whether a link points at a file hoster, whichever accounts are connected.
     /// Real-Debrid's list is public and broad, and asking for it reveals no link.
     pub async fn is_known_hoster(&self, url: &str) -> bool {
