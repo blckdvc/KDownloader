@@ -79,6 +79,22 @@ const START_BUZZHEAVIER: &str = r#"(() => {
   addEventListener("DOMContentLoaded", start);
 })();"#;
 
+/// workupload: once its browser check has passed, follows the page's Download
+/// button, whose page then starts the file in this window. Once per page, so
+/// that being sent back to it doesn't loop.
+const START_WORKUPLOAD: &str = r#"(() => {
+  if (window.top !== window.self) return;
+  const key = "kdownloader-started:" + location.pathname;
+  const start = () => {
+    const button = document.querySelector('a[href*="/start/"]');
+    if (!button || sessionStorage.getItem(key)) return;
+    sessionStorage.setItem(key, "1");
+    location.href = button.href;
+  };
+  new MutationObserver(start).observe(document, { childList: true, subtree: true });
+  addEventListener("DOMContentLoaded", start);
+})();"#;
+
 /// A page's Click'n'Load button posts its encrypted links to the local port, which
 /// a secure page may be refused. This catches that post, whichever way the page
 /// sends it, and reports what it carries, so the port isn't needed.
@@ -380,6 +396,9 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
     let mut script = String::new();
     if links::is_buzzheavier(&url) {
         script.push_str(START_BUZZHEAVIER);
+    }
+    if page.host_str().is_some_and(|h| h.trim_start_matches("www.") == "workupload.com") {
+        script.push_str(START_WORKUPLOAD);
     }
     if !browser_host {
         let hosters = app.state::<Engine>().accounts().hoster_domains().await;
