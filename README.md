@@ -174,8 +174,9 @@ Fakirdebrid. API keys are stored in the macOS Keychain.
 Free hosts with a direct file address work without an account: **pixeldrain** share
 links (`/u/…`) download with resume, and albums (`/l/…`) expand into their files.
 Hosts that check for a real browser before showing a file, such as **workupload**,
-open in a small window: once the page is ready, start the download there and
-KDownloader takes it over, with that window's session.
+open in a small window: once the page is ready, start the download there. The
+window saves the file in your download folder, and it then appears in the queue
+and is extracted like the others.
 
 Copied links are routed automatically: magnets and `.torrent` URLs prefill the Torrent
 tab, and other file links start at once, or wait in the Link Grabber if you turn that off. The code lives in `src-tauri/src/direct/`
