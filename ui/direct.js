@@ -827,9 +827,16 @@ listen("protected-links", (event) => {
   renderGrabbed();
   collect(event.payload.links, event.payload.review);
 });
+listen("page-downloaded", (event) => {
+  grabbed = grabbed.filter((p) => p.url !== event.payload);
+  renderGrabbed();
+  refresh();
+});
 listen("show-torrents", () => showApp("torrent"));
 listen("torrent-error", (event) => { showApp("torrent"); showError(event.payload); });
 listen("clipboard-error", (event) => showFailure(`Clipboard unavailable: ${event.payload}`));
+listen("dd-info", (event) => showNotice(event.payload));
+listen("dd-error", (event) => showFailure(event.payload));
 
 renderGrabbed();
 loadSettings();

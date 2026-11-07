@@ -58,6 +58,49 @@ pub fn is_link_protector(url: &str) -> bool {
     LINK_PROTECTORS.iter().any(|d| host == *d || host.ends_with(&format!(".{d}")))
 }
 
+/// Pixeldrain's share pages (`/u/<id>`) show a viewer; the file itself is at
+/// its API address, which supports ranges.
+static PIXELDRAIN_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)^https?://(?:www\.)?pixeldrain\.(?:com|net)/(u|l|api/file|api/list)/([A-Za-z0-9]+)").unwrap()
+});
+
+/// Where a share link's file can be fetched directly, when the host has such
+/// an address; otherwise the link itself.
+pub fn file_url(url: &str) -> String {
+    match PIXELDRAIN_RE.captures(url) {
+        Some(c) if matches!(&c[1], "u" | "api/file") => format!("https://pixeldrain.com/api/file/{}?download", &c[2]),
+        _ => url.to_string(),
+    }
+}
+
+/// The API address listing the files of a pixeldrain album (`/l/<id>`).
+pub fn pixeldrain_list(url: &str) -> Option<String> {
+    PIXELDRAIN_RE
+        .captures(url)
+        .filter(|c| matches!(&c[1], "l" | "api/list"))
+        .map(|c| format!("https://pixeldrain.com/api/list/{}", &c[2]))
+}
+
+/// A host whose share links lead to files, so copying one is a download.
+pub fn is_file_host(url: &str) -> bool {
+    PIXELDRAIN_RE.is_match(url)
+}
+
+/// Hosts that check for a real browser before showing a file. Their page opens
+/// in a window, which downloads the file itself into the queue's folder.
+const BROWSER_HOSTS: [&str; 1] = ["workupload.com"];
+
+/// The page window's user agent: Safari's, which sites expect from a Mac.
+pub const BROWSER_UA: &str =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
+
+/// A file page on a host that checks for a real browser first.
+pub fn needs_browser(url: &str) -> bool {
+    let Ok(u) = Url::parse(url) else { return false };
+    let host = u.host_str().unwrap_or("").to_ascii_lowercase();
+    BROWSER_HOSTS.iter().any(|d| host == *d || host.ends_with(&format!(".{d}"))) && u.path().len() > 1
+}
+
 /// Links to downloadable files in an HTML page (one level, no JS).
 pub fn extract_file_links(html: &str, base: &str) -> Vec<String> {
     let Ok(base) = Url::parse(base) else { return vec![] };
@@ -187,6 +230,25 @@ mod tests {
         assert!(is_link_protector("https://filecrypt.cc/Container/ABC.html"));
         assert!(!is_link_protector("https://notkeeplinks.org/x"));
         assert!(!is_link_protector("https://rapidgator.net/file/x"));
+    }
+
+    #[test]
+    fn pixeldrain_shares_point_at_the_file() {
+        assert_eq!(file_url("https://pixeldrain.com/u/iSBb9FFs"), "https://pixeldrain.com/api/file/iSBb9FFs?download");
+        assert_eq!(file_url("https://pixeldrain.net/u/abc123?embed"), "https://pixeldrain.com/api/file/abc123?download");
+        assert_eq!(file_url("https://example.org/u/abc"), "https://example.org/u/abc");
+        assert_eq!(pixeldrain_list("https://pixeldrain.com/l/Xy12"), Some("https://pixeldrain.com/api/list/Xy12".into()));
+        assert_eq!(pixeldrain_list("https://pixeldrain.com/u/Xy12"), None);
+        assert!(is_file_host("https://pixeldrain.com/u/iSBb9FFs"));
+        assert!(!is_file_host("https://pixeldrain.com/"));
+    }
+
+    #[test]
+    fn workupload_files_open_in_a_browser() {
+        assert!(needs_browser("https://workupload.com/file/2Jme2Awus9s"));
+        assert!(needs_browser("https://www.workupload.com/file/2Jme2Awus9s"));
+        assert!(!needs_browser("https://workupload.com/"));
+        assert!(!needs_browser("https://pixeldrain.com/u/abc"));
     }
 
     #[test]

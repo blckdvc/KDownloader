@@ -268,6 +268,9 @@ struct Inner {
     saving: Mutex<()>,
 }
 
+/// Held while a file name is chosen and taken, so two files never pick the same.
+static NAMING: Mutex<()> = Mutex::new(());
+
 #[derive(Clone)]
 pub struct Engine(Arc<Inner>);
 
@@ -368,6 +371,8 @@ impl Engine {
             let mut kept = Vec::new();
             for url in urls {
                 if links::looks_like_file(&url)
+                    || links::is_file_host(&url)
+                    || links::needs_browser(&url)
                     || links::is_link_protector(&url)
                     || self.0.accounts.is_known_hoster(&url).await
                 {
@@ -376,6 +381,7 @@ impl Engine {
             }
             urls = kept;
         }
+        let urls = self.expand_albums(urls).await;
         let first = self.probe_all(urls).await;
         let mut found = Vec::new();
         let mut followed = Vec::new();
@@ -447,6 +453,33 @@ impl Engine {
         set.join_all().await
     }
 
+    /// Replaces each pixeldrain album with the share links of its files.
+    async fn expand_albums(&self, urls: Vec<String>) -> Vec<String> {
+        let mut out = Vec::new();
+        for url in urls {
+            let Some(api) = links::pixeldrain_list(&url) else {
+                out.push(url);
+                continue;
+            };
+            let files = async {
+                let body: serde_json::Value = self.0.http.get(&api).send().await.ok()?.json().await.ok()?;
+                let ids: Vec<String> = body["files"]
+                    .as_array()?
+                    .iter()
+                    .filter_map(|f| f["id"].as_str())
+                    .map(|id| format!("https://pixeldrain.com/u/{id}"))
+                    .collect();
+                (!ids.is_empty()).then_some(ids)
+            }
+            .await;
+            match files {
+                Some(files) => out.extend(files),
+                None => out.push(url), // probed as is, and reported as a page
+            }
+        }
+        out
+    }
+
     async fn page_links(&self, url: &str) -> Vec<String> {
         // Retried like a probe: a page that fails once would otherwise pass for
         // a page without files.
@@ -468,6 +501,60 @@ impl Engine {
             }
         }
         links::extract_file_links(&String::from_utf8_lossy(&body), &base)
+    }
+
+    /// Where a page window saves a file it downloads itself: a fresh name in
+    /// the file's package folder, as the queue would choose.
+    pub fn browser_destination(&self, name: &str) -> PathBuf {
+        let name = links::sanitize(name);
+        let dir = self.settings().download_dir.join(links::sanitize(&links::package_name(&name)));
+        let _ = std::fs::create_dir_all(&dir);
+        let _naming = NAMING.lock().unwrap();
+        unique_path(&dir, &name)
+    }
+
+    /// Lists a file a page window downloaded as a finished item, and extracts it
+    /// like any other when that is on.
+    pub fn add_downloaded(&self, url: &str, path: PathBuf) {
+        let size = std::fs::metadata(&path).map(|m| m.len()).ok();
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let id = {
+            let mut st = self.0.state.lock().unwrap();
+            st.next_id += 1;
+            let id = st.next_id;
+            st.items.push(Item {
+                id,
+                url: url.to_string(),
+                package: links::package_name(&name),
+                dir: path.parent().map(Path::to_path_buf).unwrap_or_default(),
+                name,
+                size,
+                resumable: false,
+                validator: None,
+                status: Status::Done,
+                error: None,
+                output: Some(path),
+                segments: vec![],
+                provider: None,
+                direct: None,
+                max_chunks: None,
+                done: size.unwrap_or(0),
+                speed: 0,
+                retry_at: None,
+                waits: 0,
+                link_fresh_until: None,
+                extracted: 0,
+                extract_total: None,
+                extract_speed: 0,
+                skip_extraction: false,
+            });
+            id
+        };
+        self.save();
+        if self.settings().auto_extract {
+            let engine = self.clone();
+            tokio::spawn(async move { engine.extract(id).await });
+        }
     }
 
     #[cfg(test)]
@@ -758,7 +845,7 @@ impl Engine {
                 })
                 .ok_or(DlError::Cancelled)?;
         }
-        let target = item.direct.clone().unwrap_or_else(|| item.url.clone());
+        let target = item.direct.clone().unwrap_or_else(|| links::file_url(&item.url));
         if fresh || item.provider.is_some() {
             let info = tokio::select! {
                 _ = token.cancelled() => return Err(DlError::Cancelled),
@@ -967,7 +1054,6 @@ impl Engine {
         let Some(item) = self.snapshot(id) else { return false };
         // Picking a free name and taking it in one step: two files of the same
         // name finishing together would otherwise both pick it, and one would be lost.
-        static NAMING: Mutex<()> = Mutex::new(());
         let renamed = {
             let _naming = NAMING.lock().unwrap();
             let output = unique_path(&item.dir, &item.name);
@@ -1317,6 +1403,18 @@ async fn extract_archive(archive: &Path, target: &Path) -> Result<(), String> {
 async fn inspect(http: &Client, accounts: &Accounts, url: &str) -> Probe {
     let (provider, unlocked) = match accounts.unlock_any(url).await {
         None => {
+            if links::needs_browser(url) {
+                let name = links::name_from_url(url);
+                return Probe {
+                    url: url.to_string(),
+                    package: links::package_name(&name),
+                    name,
+                    page: true,
+                    protected: true,
+                    error: Some("This site checks for a browser: the download starts from its page".into()),
+                    ..Default::default()
+                };
+            }
             if links::is_link_protector(url) {
                 let name = links::name_from_url(url);
                 return Probe {
@@ -1329,7 +1427,8 @@ async fn inspect(http: &Client, accounts: &Accounts, url: &str) -> Probe {
                     ..Default::default()
                 };
             }
-            let mut result = probe(http, url).await;
+            let mut result = probe(http, &links::file_url(url)).await;
+            result.url = url.to_string();
             // A hoster answers with its landing page, or blocks us outright.
             if (result.html || !result.online) && accounts.is_known_hoster(url).await {
                 result.online = false;
