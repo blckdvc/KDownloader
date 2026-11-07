@@ -1,6 +1,6 @@
 [package]
 name = "kdownloader"
-version = "0.2.2"
+version = "0.2.3"
 description = "A light, complete BitTorrent client"
 edition = "2021"
 rust-version = "1.85"
@@ -32,6 +32,7 @@ regex = "1"
 percent-encoding = "2"
 aes = "0.8"
 cbc = { version = "0.1", features = ["std"] }
+ctr = "0.9"
 base64 = "0.22"
 libc = "0.2"
 arboard = { version = "3", default-features = false }
