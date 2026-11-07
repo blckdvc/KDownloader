@@ -6,7 +6,10 @@ use super::engine::Engine;
 use super::links;
 use percent_encoding::percent_decode_str;
 use serde::Serialize;
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use tauri::webview::{DownloadEvent, NewWindowResponse};
 use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 
@@ -286,28 +289,19 @@ pub fn start_click_n_load(app: AppHandle) {
     });
 }
 
-/// Queues a file the page window started downloading, with the window's cookies
-/// and user agent, then closes the window.
-async fn on_browser_download(app: AppHandle, label: String, url: Url) {
-    if !matches!(url.scheme(), "http" | "https") {
-        return;
-    }
-    let cookie = app
-        .get_webview_window(&label)
-        .and_then(|w| w.cookies_for_url(url.clone()).ok())
-        .map(|cookies| cookies.iter().map(|c| format!("{}={}", c.name(), c.value())).collect::<Vec<_>>().join("; "))
-        .filter(|c| !c.is_empty());
-    let engine = app.state::<Engine>().inner().clone();
-    match engine.add_from_browser(url.as_str(), cookie).await {
-        Ok(name) => {
-            tracing::info!("browser download queued: {name}");
+/// Lists the file the page window finished downloading, then closes the window.
+fn on_browser_download(app: AppHandle, label: String, url: String, target: Option<PathBuf>, success: bool) {
+    match target.filter(|t| success && t.exists()) {
+        Some(path) => {
+            tracing::info!("browser download finished: {}", path.display());
+            app.state::<Engine>().add_downloaded(&url, path);
             if let Some(window) = app.get_webview_window(&label) {
                 let _ = window.close();
             }
         }
-        Err(e) => {
-            tracing::warn!("browser download refused: {e}");
-            let _ = app.emit("clipboard-error", format!("The download couldn't be taken over: {e}"));
+        None => {
+            tracing::warn!("browser download failed: {url}");
+            let _ = app.emit("dd-error", "The download in the page window failed");
         }
     }
 }
@@ -358,12 +352,30 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
     if browser_host {
         // The site checks the browser, then the user starts the download on its
         // page; that download goes to the queue with this window's session.
+        // The site only serves the file to the browser that passed its check,
+        // so the window downloads it itself, into the queue's folder.
+        let saving = Arc::new(Mutex::new(HashMap::<String, PathBuf>::new()));
         builder = builder.user_agent(links::BROWSER_UA).on_download(move |_, event| {
-            if let DownloadEvent::Requested { url, .. } = event {
-                let job = on_browser_download(dl_app.clone(), dl_label.clone(), url.clone());
-                tauri::async_runtime::spawn(job);
+            match event {
+                DownloadEvent::Requested { url, destination } => {
+                    if !matches!(url.scheme(), "http" | "https") {
+                        return false;
+                    }
+                    let name = destination.file_name().map(|n| n.to_string_lossy().into_owned());
+                    let name = name.unwrap_or_else(|| links::name_from_url(url.as_str()));
+                    let target = dl_app.state::<Engine>().browser_destination(&name);
+                    *destination = target.clone();
+                    saving.lock().unwrap().insert(url.to_string(), target);
+                    let _ = dl_app.emit("dd-info", format!("Downloading {name} in the page window…"));
+                    true
+                }
+                DownloadEvent::Finished { url, success, .. } => {
+                    let target = saving.lock().unwrap().remove(url.as_str());
+                    on_browser_download(dl_app.clone(), dl_label.clone(), url.to_string(), target, success);
+                    true
+                }
+                _ => true,
             }
-            false
         });
     }
     builder

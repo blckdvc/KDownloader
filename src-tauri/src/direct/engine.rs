@@ -4,8 +4,8 @@
 use crate::direct::links;
 use crate::direct::providers::{Accounts, Provider, Unlocked};
 use reqwest::header::{
-    HeaderMap, CONTENT_DISPOSITION, COOKIE, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, ETAG, IF_RANGE,
-    LAST_MODIFIED, RANGE, RETRY_AFTER, USER_AGENT,
+    HeaderMap, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, ETAG, IF_RANGE,
+    LAST_MODIFIED, RANGE, RETRY_AFTER,
 };
 use reqwest::{Client, Response, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -116,10 +116,6 @@ pub struct Item {
     pub direct: Option<String>,
     #[serde(default)]
     pub max_chunks: Option<usize>,
-    /// Cookies of the browser session a site's check granted, sent with every
-    /// request for this file.
-    #[serde(default)]
-    pub cookie: Option<String>,
     #[serde(default)]
     pub done: u64,
     #[serde(default)]
@@ -182,8 +178,6 @@ pub struct Probe {
     pub protected: bool,
     /// Listed from an untrusted page, and not contacted until the user accepts it.
     pub unchecked: bool,
-    /// Cookies of the page window the download came from.
-    pub cookie: Option<String>,
     #[serde(skip)]
     html: bool,
     #[serde(skip)]
@@ -259,7 +253,6 @@ struct Job {
     resumable: bool,
     validator: Option<String>,
     relinkable: bool,
-    cookie: Option<String>,
 }
 
 struct Inner {
@@ -274,6 +267,9 @@ struct Inner {
     /// Keeps saves in order, so an older state can't replace a newer one.
     saving: Mutex<()>,
 }
+
+/// Held while a file name is chosen and taken, so two files never pick the same.
+static NAMING: Mutex<()> = Mutex::new(());
 
 #[derive(Clone)]
 pub struct Engine(Arc<Inner>);
@@ -507,19 +503,58 @@ impl Engine {
         links::extract_file_links(&String::from_utf8_lossy(&body), &base)
     }
 
-    /// Queues a download a page window started, with that window's cookies.
-    pub async fn add_from_browser(&self, url: &str, cookie: Option<String>) -> Result<String, String> {
-        let mut found = probe(&self.0.http, url, cookie.as_deref()).await;
-        if !found.online {
-            return Err(found.error.unwrap_or_else(|| "offline".into()));
+    /// Where a page window saves a file it downloads itself: a fresh name in
+    /// the file's package folder, as the queue would choose.
+    pub fn browser_destination(&self, name: &str) -> PathBuf {
+        let name = links::sanitize(name);
+        let dir = self.settings().download_dir.join(links::sanitize(&links::package_name(&name)));
+        let _ = std::fs::create_dir_all(&dir);
+        let _naming = NAMING.lock().unwrap();
+        unique_path(&dir, &name)
+    }
+
+    /// Lists a file a page window downloaded as a finished item, and extracts it
+    /// like any other when that is on.
+    pub fn add_downloaded(&self, url: &str, path: PathBuf) {
+        let size = std::fs::metadata(&path).map(|m| m.len()).ok();
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let id = {
+            let mut st = self.0.state.lock().unwrap();
+            st.next_id += 1;
+            let id = st.next_id;
+            st.items.push(Item {
+                id,
+                url: url.to_string(),
+                package: links::package_name(&name),
+                dir: path.parent().map(Path::to_path_buf).unwrap_or_default(),
+                name,
+                size,
+                resumable: false,
+                validator: None,
+                status: Status::Done,
+                error: None,
+                output: Some(path),
+                segments: vec![],
+                provider: None,
+                direct: None,
+                max_chunks: None,
+                done: size.unwrap_or(0),
+                speed: 0,
+                retry_at: None,
+                waits: 0,
+                link_fresh_until: None,
+                extracted: 0,
+                extract_total: None,
+                extract_speed: 0,
+                skip_extraction: false,
+            });
+            id
+        };
+        self.save();
+        if self.settings().auto_extract {
+            let engine = self.clone();
+            tokio::spawn(async move { engine.extract(id).await });
         }
-        if found.html {
-            return Err("The site sent a web page, not the file".into());
-        }
-        found.cookie = cookie;
-        let name = found.name.clone();
-        self.add_with(vec![found], AddOptions::default());
-        Ok(name)
     }
 
     #[cfg(test)]
@@ -550,7 +585,6 @@ impl Engine {
                     provider: p.provider,
                     direct: p.direct,
                     max_chunks: p.max_chunks,
-                    cookie: p.cookie,
                     done: 0,
                     speed: 0,
                     retry_at: None,
@@ -815,7 +849,7 @@ impl Engine {
         if fresh || item.provider.is_some() {
             let info = tokio::select! {
                 _ = token.cancelled() => return Err(DlError::Cancelled),
-                p = probe(&self.0.http, &target, item.cookie.as_deref()) => p,
+                p = probe(&self.0.http, &target) => p,
             };
             if !info.online && link_is_fresh && item.provider.is_some() {
                 return Err(DlError::Relink);
@@ -877,7 +911,6 @@ impl Engine {
                 resumable: item.resumable,
                 validator: item.validator.clone(),
                 relinkable: item.provider.is_some(),
-                cookie: item.cookie.clone(),
             };
             set.spawn(self.clone().run_segment(job, group.clone()));
         }
@@ -930,7 +963,7 @@ impl Engine {
             .ok_or(Attempt::Stop(DlError::Cancelled))?;
         let pos = segment.start + segment.done;
 
-        let mut request = get(&self.0.http, &job.url, job.cookie.as_deref());
+        let mut request = self.0.http.get(&job.url);
         if job.resumable {
             let end = segment.end.map(|e| e.to_string()).unwrap_or_default();
             request = request.header(RANGE, format!("bytes={pos}-{end}"));
@@ -1021,7 +1054,6 @@ impl Engine {
         let Some(item) = self.snapshot(id) else { return false };
         // Picking a free name and taking it in one step: two files of the same
         // name finishing together would otherwise both pick it, and one would be lost.
-        static NAMING: Mutex<()> = Mutex::new(());
         let renamed = {
             let _naming = NAMING.lock().unwrap();
             let output = unique_path(&item.dir, &item.name);
@@ -1395,7 +1427,7 @@ async fn inspect(http: &Client, accounts: &Accounts, url: &str) -> Probe {
                     ..Default::default()
                 };
             }
-            let mut result = probe(http, &links::file_url(url), None).await;
+            let mut result = probe(http, &links::file_url(url)).await;
             result.url = url.to_string();
             // A hoster answers with its landing page, or blocks us outright.
             if (result.html || !result.online) && accounts.is_known_hoster(url).await {
@@ -1417,7 +1449,7 @@ async fn inspect(http: &Client, accounts: &Accounts, url: &str) -> Probe {
             };
         }
     };
-    let mut result = probe(http, &unlocked.url, None).await;
+    let mut result = probe(http, &unlocked.url).await;
     result.url = url.to_string();
     result.html = false;
     result.provider = Some(provider);
@@ -1433,24 +1465,24 @@ async fn inspect(http: &Client, accounts: &Accounts, url: &str) -> Probe {
 
 /// A pooled connection the server just closed, or a passing outage, must not
 /// read as a dead link.
-async fn probe(http: &Client, url: &str, cookie: Option<&str>) -> Probe {
-    let mut result = probe_once(http, url, cookie).await;
+async fn probe(http: &Client, url: &str) -> Probe {
+    let mut result = probe_once(http, url).await;
     for attempt in 0..PROBE_RETRIES {
         if !result.transient {
             break;
         }
         sleep(Duration::from_millis(500 << attempt)).await;
-        result = probe_once(http, url, cookie).await;
+        result = probe_once(http, url).await;
     }
     result
 }
 
 /// Asks for the first byte: a 206 tells us both the size and range support.
-async fn probe_once(http: &Client, url: &str, cookie: Option<&str>) -> Probe {
+async fn probe_once(http: &Client, url: &str) -> Probe {
     let mut result = Probe { url: url.to_string(), ..Default::default() };
-    let mut sent = get(http, url, cookie).header(RANGE, "bytes=0-0").send().await;
+    let mut sent = http.get(url).header(RANGE, "bytes=0-0").send().await;
     if matches!(&sent, Ok(r) if r.status() == StatusCode::RANGE_NOT_SATISFIABLE) {
-        sent = get(http, url, cookie).send().await; // empty file
+        sent = http.get(url).send().await; // empty file
     }
     let resp = match sent {
         Ok(resp) => resp,
@@ -1489,16 +1521,6 @@ async fn probe_once(http: &Client, url: &str, cookie: Option<&str>) -> Probe {
         .or_else(|| header(headers, LAST_MODIFIED))
         .map(str::to_string);
     result
-}
-
-/// A GET carrying a browser session's cookies, and that browser's user agent,
-/// when the file came from a page window.
-fn get(http: &Client, url: &str, cookie: Option<&str>) -> reqwest::RequestBuilder {
-    let request = http.get(url);
-    match cookie {
-        Some(cookie) => request.header(COOKIE, cookie).header(USER_AGENT, links::BROWSER_UA),
-        None => request,
-    }
 }
 
 fn header(headers: &HeaderMap, name: reqwest::header::HeaderName) -> Option<&str> {
