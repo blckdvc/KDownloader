@@ -738,6 +738,7 @@ fn queue_order_can_change() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+#[cfg(unix)]
 #[test]
 fn free_space_reads_the_disk() {
     assert!(free_space(&std::env::temp_dir()).unwrap() > 0);
