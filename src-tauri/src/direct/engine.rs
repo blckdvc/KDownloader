@@ -1444,7 +1444,7 @@ fn plan_segments(size: Option<u64>, resumable: bool, chunks: usize) -> Vec<Segme
         .collect()
 }
 
-fn unique_path(dir: &Path, name: &str) -> PathBuf {
+pub(crate) fn unique_path(dir: &Path, name: &str) -> PathBuf {
     let first = dir.join(name);
     if !first.exists() {
         return first;
@@ -1511,7 +1511,7 @@ fn free_space(dir: &Path) -> Option<u64> {
 /// RAR goes through unrar, which follows volumes. For the rest, macOS `tar` is
 /// bsdtar: it reads zip, tar and 7z, and by default refuses paths that climb out of
 /// the target folder.
-async fn extract_archive(archive: &Path, target: &Path) -> Result<(), String> {
+pub(crate) async fn extract_archive(archive: &Path, target: &Path) -> Result<(), String> {
     fs::create_dir_all(target).await.map_err(|e| e.to_string())?;
     if links::rar_volume(&archive.to_string_lossy()).is_some() {
         let (archive, target) = (archive.to_path_buf(), target.to_path_buf());

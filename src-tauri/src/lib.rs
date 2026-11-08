@@ -8,6 +8,7 @@ mod map;
 mod menu;
 mod migrate;
 mod rss;
+mod unpack;
 mod upnp;
 mod watch;
 
@@ -88,6 +89,10 @@ struct Settings {
     peer_limit: u32,
     /// Peer connection encryption (MSE): "preferred", "required" or "off".
     encryption: String,
+    /// Extract the archives of torrents that finish downloading.
+    torrent_extract: bool,
+    /// Then delete them, which stops the torrent from seeding.
+    torrent_delete_archive: bool,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -115,6 +120,8 @@ impl Default for Settings {
             extra_trackers: String::new(),
             peer_limit: 0,
             encryption: "preferred".into(),
+            torrent_extract: false,
+            torrent_delete_archive: false,
         }
     }
 }
@@ -1084,6 +1091,7 @@ pub fn run() {
             tauri::async_runtime::spawn(log_trim_loop(log_file));
             tauri::async_runtime::spawn(scheduler_loop(shared.clone()));
             tauri::async_runtime::spawn(upload_accounting_loop(shared.clone()));
+            tauri::async_runtime::spawn(unpack::run(shared.clone()));
             if upnp_enabled {
                 tauri::async_runtime::spawn(upnp::run(
                     shared.http.clone(),
