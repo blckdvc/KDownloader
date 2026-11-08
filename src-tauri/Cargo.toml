@@ -1,6 +1,6 @@
 [package]
 name = "kdownloader"
-version = "0.2.5"
+version = "0.3.0"
 description = "A light, complete BitTorrent client"
 edition = "2021"
 rust-version = "1.85"
