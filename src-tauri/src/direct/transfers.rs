@@ -1,8 +1,9 @@
 //! File-transfer services whose share links lead to files through a public
 //! API rather than a page: MEGA (and transfer.it, which runs on it) and
-//! WeTransfer, plus MediaFire, whose page holds the file's address. Their file
-//! addresses are temporary, so each download asks for a
-//! fresh one; MEGA's files are encrypted, and decrypted as they arrive.
+//! WeTransfer, plus MediaFire, Google Drive and Dropbox, which hand out their
+//! files from a page or a share address. Their file addresses are temporary,
+//! so each download asks for a fresh one; MEGA's files are encrypted, and
+//! decrypted as they arrive.
 
 use aes::cipher::{BlockDecrypt, BlockDecryptMut, KeyInit, KeyIvInit, StreamCipher, StreamCipherSeek};
 use base64::Engine as _;
@@ -28,6 +29,10 @@ pub enum Link {
     WeTransfer { url: String },
     /// A MediaFire file page; its folders aren't handled.
     MediaFire { url: String },
+    /// A shared Google Drive file, by its id; folders aren't handled.
+    GoogleDrive { id: String },
+    /// A Dropbox share link: a file, or a folder that comes as a ZIP.
+    Dropbox { url: String },
 }
 
 /// Where a file can be fetched right now, and how to decrypt it.
@@ -108,6 +113,19 @@ pub fn parse(url: &str) -> Option<Link> {
         let file = matches!(segments.as_slice(), ["file" | "file_premium" | "download", _key, ..])
             || (segments.is_empty() && u.query().is_some_and(|q| !q.is_empty() && !q.contains('=')));
         return file.then(|| Link::MediaFire { url: url.to_string() });
+    }
+    if host_is(&u, &["drive.google.com", "docs.google.com", "drive.usercontent.google.com"]) {
+        let id = match segments.as_slice() {
+            ["file", "d", id, ..] => Some(id.to_string()),
+            ["open" | "uc" | "download"] => u.query_pairs().find(|(k, _)| k == "id").map(|(_, v)| v.into_owned()),
+            _ => None,
+        };
+        return id.filter(|id| id.len() >= 10 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+            .map(|id| Link::GoogleDrive { id });
+    }
+    if host_is(&u, &["dropbox.com"]) && !host_is(&u, &["dl.dropboxusercontent.com"]) {
+        let share = matches!(segments.as_slice(), ["s" | "sh", _, ..] | ["scl", "fi" | "fo", _, ..]);
+        return share.then(|| Link::Dropbox { url: url.to_string() });
     }
     if host_is(&u, &["we.tl"]) && segments.len() == 1 {
         return Some(Link::WeTransfer { url: url.to_string() });
@@ -325,7 +343,9 @@ pub async fn list(http: &Client, url: &str) -> Result<Vec<Entry>, String> {
             }
             Ok(entries)
         }
-        Link::WeTransfer { .. } | Link::MediaFire { .. } => Err("Not a MEGA link".into()),
+        Link::WeTransfer { .. } | Link::MediaFire { .. } | Link::GoogleDrive { .. } | Link::Dropbox { .. } => {
+            Err("Not a MEGA link".into())
+        }
     }
 }
 
@@ -440,19 +460,91 @@ async fn resolve_mediafire(http: &Client, url: &str) -> Result<Resolved, String>
     Ok(Resolved { url: link, cipher: None })
 }
 
+// --- Google Drive -------------------------------------------------------------
+
+const DRIVE_DOWNLOAD: &str = "https://drive.usercontent.google.com/download";
+
+/// The address behind the "Download anyway" button of Drive's virus-scan
+/// warning, which it shows instead of files it's too big to scan.
+fn drive_warning_link(page: &str) -> Option<String> {
+    let start = page.find("id=\"download-form\"")?;
+    let form = &page[page[..start].rfind('<')?..];
+    let form = &form[..form.find("</form>").unwrap_or(form.len())];
+    let attr = |tag: &str, name: &str| {
+        let at = tag.find(&format!("{name}=\""))? + name.len() + 2;
+        Some(tag[at..at + tag[at..].find('"')?].replace("&amp;", "&"))
+    };
+    let action = attr(&form[..form.find('>')?], "action").filter(|a| a.starts_with("https://"))?;
+    let mut url = Url::parse(&action).ok()?;
+    for input in form.split("<input").skip(1) {
+        let tag = &input[..input.find('>').unwrap_or(input.len())];
+        if attr(tag, "type").as_deref() != Some("hidden") {
+            continue;
+        }
+        if let (Some(name), Some(value)) = (attr(tag, "name"), attr(tag, "value")) {
+            url.query_pairs_mut().append_pair(&name, &value);
+        }
+    }
+    url.query_pairs().any(|(k, _)| k == "id").then(|| url.to_string())
+}
+
+async fn resolve_drive(http: &Client, id: &str) -> Result<Resolved, String> {
+    let mut url = Url::parse(DRIVE_DOWNLOAD).unwrap();
+    url.query_pairs_mut().append_pair("id", id).append_pair("export", "download");
+    let r = http.get(url.clone()).header("Range", "bytes=0-0").send().await.map_err(|e| format!("connection: {e}"))?;
+    if r.status().as_u16() == 404 {
+        return Err("This Google Drive file doesn't exist, or isn't shared with everyone".into());
+    }
+    if host_is(r.url(), &["accounts.google.com"]) || r.status().as_u16() == 403 {
+        return Err("This Google Drive file isn't shared with everyone".into());
+    }
+    if r.status().is_server_error() {
+        return Err(format!("Google Drive is temporarily unavailable ({})", r.status()));
+    }
+    let html = r.headers().get("content-type").and_then(|v| v.to_str().ok()).is_some_and(|t| t.starts_with("text/html"));
+    if !html {
+        return Ok(Resolved { url: url.to_string(), cipher: None });
+    }
+    let page = r.text().await.map_err(|e| format!("connection: {e}"))?;
+    if let Some(link) = drive_warning_link(&page) {
+        return Ok(Resolved { url: link, cipher: None });
+    }
+    if page.contains("Quota exceeded") || page.contains("Too many users") {
+        return Err("This file's Google Drive download quota is used up for now: try again later".into());
+    }
+    Err("Google Drive didn't offer this file's download".into())
+}
+
+// --- Dropbox ------------------------------------------------------------------
+
+/// A Dropbox share link turned into its download: `dl=1`, keeping its key.
+fn dropbox_download(url: &str) -> Option<String> {
+    let mut u = Url::parse(url).ok()?;
+    let kept: Vec<(String, String)> =
+        u.query_pairs().filter(|(k, _)| k != "dl" && k != "raw").map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
+    u.query_pairs_mut().clear().extend_pairs(kept).append_pair("dl", "1");
+    u.set_fragment(None);
+    Some(u.to_string())
+}
+
 /// A fresh address for a file of a share link.
 pub async fn resolve(http: &Client, url: &str) -> Result<Resolved, String> {
     match parse(url).ok_or("Not a share link")? {
         Link::WeTransfer { url } => resolve_wetransfer(http, &url).await,
         Link::MediaFire { url } => resolve_mediafire(http, &url).await,
+        Link::GoogleDrive { id } => resolve_drive(http, &id).await,
+        Link::Dropbox { url } => {
+            let url = dropbox_download(&url).ok_or("This Dropbox link can't be read")?;
+            Ok(Resolved { url, cipher: None })
+        }
         link => resolve_mega(http, &link).await,
     }
 }
 
-/// A MediaFire file page. It has no free quota, so it's fetched directly
-/// before any debrid account is asked.
-pub fn is_mediafire(url: &str) -> bool {
-    matches!(parse(url), Some(Link::MediaFire { .. }))
+/// A host that hands out its files freely, without a quota a debrid account
+/// would avoid: it's fetched directly, and an account is only the fallback.
+pub fn is_free_first(url: &str) -> bool {
+    matches!(parse(url), Some(Link::MediaFire { .. } | Link::GoogleDrive { .. } | Link::Dropbox { .. }))
 }
 
 /// Whether a share link stands for several files, listed rather than probed.
@@ -505,6 +597,54 @@ mod tests {
         assert!(parse("https://www.mediafire.com/folder/abc123/Stuff").is_none(), "folders aren't handled");
         assert!(parse("https://www.mediafire.com/").is_none());
         assert!(parse("https://pixeldrain.com/u/abc").is_none());
+        let drive = |u: &str| match parse(u) {
+            Some(Link::GoogleDrive { id }) => Some(id),
+            _ => None,
+        };
+        let id = "1l_5RK28JRL19wpT22B-DY9We3TVXnnQQ";
+        assert_eq!(drive(&format!("https://drive.google.com/file/d/{id}/view?usp=sharing")).as_deref(), Some(id));
+        assert_eq!(drive(&format!("https://drive.google.com/open?id={id}")).as_deref(), Some(id));
+        assert_eq!(drive(&format!("https://drive.google.com/uc?export=download&id={id}")).as_deref(), Some(id));
+        assert_eq!(drive(&format!("https://drive.usercontent.google.com/download?id={id}&export=download")).as_deref(), Some(id));
+        assert_eq!(drive("https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOp"), None, "folders aren't handled");
+        assert_eq!(drive("https://docs.google.com/document/d/1AbCdEfGhIjKlMnOp/edit"), None);
+        for share in [
+            "https://www.dropbox.com/scl/fi/a1b2c3d4/report.pdf?rlkey=xyz&dl=0",
+            "https://www.dropbox.com/s/a1b2c3d4/report.pdf?dl=0",
+            "https://www.dropbox.com/scl/fo/a1b2c3d4/AbC?rlkey=xyz",
+            "https://www.dropbox.com/sh/a1b2c3d4/AbC",
+        ] {
+            assert!(matches!(parse(share), Some(Link::Dropbox { .. })), "{share}");
+        }
+        assert!(parse("https://www.dropbox.com/home").is_none());
+        assert!(parse("https://dl.dropboxusercontent.com/s/a1b2/report.pdf").is_none(), "already the file");
+    }
+
+    #[test]
+    fn dropbox_links_ask_for_the_download() {
+        assert_eq!(
+            dropbox_download("https://www.dropbox.com/scl/fi/a1b2/report.pdf?rlkey=xyz&dl=0").as_deref(),
+            Some("https://www.dropbox.com/scl/fi/a1b2/report.pdf?rlkey=xyz&dl=1")
+        );
+        assert_eq!(
+            dropbox_download("https://www.dropbox.com/s/a1b2/report.pdf").as_deref(),
+            Some("https://www.dropbox.com/s/a1b2/report.pdf?dl=1")
+        );
+    }
+
+    #[test]
+    fn reads_drives_virus_scan_warning() {
+        let page = r#"<form id="download-form" action="https://drive.usercontent.google.com/download" method="get">
+            <input type="submit" id="uc-download-link" value="Download anyway"/>
+            <input type="hidden" name="id" value="1l_5RK28">
+            <input type="hidden" name="export" value="download">
+            <input type="hidden" name="confirm" value="t">
+            <input type="hidden" name="uuid" value="1df1-5ebf"></form>"#;
+        assert_eq!(
+            drive_warning_link(page).as_deref(),
+            Some("https://drive.usercontent.google.com/download?id=1l_5RK28&export=download&confirm=t&uuid=1df1-5ebf")
+        );
+        assert_eq!(drive_warning_link("<p>Quota exceeded</p>"), None);
     }
 
     #[test]
