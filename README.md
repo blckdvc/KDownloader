@@ -57,7 +57,7 @@ Free and open-source 🙂 — if you feel like it, buy me a few tokens:
   and binding to a network interface (useful with a VPN)
 - Logs show only the tracker host, since private-tracker URLs carry a passkey
 
-![KDownloader — torrent settings, network and privacy](docs/screenshot-settings-light.png)
+![KDownloader — Settings, with a tab for torrents and one for Direct Download, and the archive options](docs/screenshot-settings-light.png)
 
 ### Automation
 
