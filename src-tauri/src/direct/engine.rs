@@ -1536,9 +1536,9 @@ async fn extract_archive(archive: &Path, target: &Path) -> Result<(), String> {
 /// Sends the link through a debrid service if one handles its host. The queue
 /// keeps the original URL; a generated one doesn't outlive the session.
 async fn inspect(http: &Client, accounts: &Accounts, url: &str) -> Probe {
-    // MediaFire's own page hands out its file freely: the debrid account,
-    // which spends its quota, is only the fallback.
-    if transfers::is_mediafire(url) {
+    // MediaFire, Google Drive and Dropbox hand out their files freely: the
+    // debrid account, which spends its quota, is only the fallback.
+    if transfers::is_free_first(url) {
         let direct = inspect_share(http, url).await;
         if direct.online || !accounts.has_account_for(url).await {
             return direct;
@@ -1618,6 +1618,12 @@ async fn inspect_share(http: &Client, url: &str) -> Probe {
             let mut result = probe(http, &resolved.url).await;
             result.url = url.to_string();
             result.direct = Some(resolved.url);
+            // A share whose file is gone can answer with a page, as Dropbox does.
+            if result.html {
+                result.html = false;
+                result.online = false;
+                result.error = Some("This link doesn't lead to a file anymore".into());
+            }
             result
         }
         Err(error) => {
