@@ -135,6 +135,19 @@ current, peak and average speed of each, plus a speed meter on the Dock icon.
 
 ![KDownloader — Bandwidth tab in dark mode](docs/screenshot-bandwidth-dark.png)
 
+### Map
+
+The **Map** view shows where your transfers go: torrent peers you download from or upload to,
+and the servers Direct Download fetches from, with their speeds and a table by country.
+
+- Zoom with the wheel, a double-click or the +/− buttons, and drag to move around.
+- Places close together are grouped, and hovering one shows its peers and speeds.
+- Peers are placed with DB-IP's free city database (CC BY 4.0), which the map offers to download
+  the first time (60 MB). It stays on your Mac: no address is sent anywhere to be located.
+- Your own position comes from the Mac's time zone, so the map knows your city, not your address.
+
+![KDownloader — the Bandwidth map in dark mode](docs/screenshot-map-dark.png)
+
 ## Keyboard
 
 A native menu bar with Transmission-style shortcuts: ⌘O open, ⌘U add links, ⌘1–4 tabs, ⌘I details,
@@ -152,6 +165,7 @@ and ⌥⌘⌫ (move to Trash). Press **?** for the full list.
 - API keys in the Keychain
 - Notifications when downloads finish
 - A speed meter on the Dock icon
+- A map of where transfers go, with locations computed offline
 - Show in Finder, and deleted files go to the Trash
 
 All app settings live in `~/Library/Application Support/com.kdownloader.desktop/`.
@@ -239,6 +253,8 @@ KDownloader/
 │   ├── src/watch.rs        watch folder
 │   ├── src/upnp.rs         UPnP port forwarding
 │   ├── src/dock.rs         Dock speed meter
+│   ├── src/geo.rs          offline IP location (DB-IP database) for the map
+│   ├── src/map.rs          the Bandwidth map's peers and servers
 │   ├── src/handler.rs      default handler for magnets and .torrent files
 │   ├── vendor/rqbit/       patched librqbit (MSE encryption)
 │   └── tauri.conf.json
@@ -247,7 +263,9 @@ KDownloader/
     ├── table.js            shared list, menu and shortcut code
     ├── main.js             Torrents tab
     ├── direct.js           Direct Download tab
-    └── bandwidth.js        Bandwidth tab
+    ├── bandwidth.js        Bandwidth tab
+    ├── map.js              Bandwidth map
+    └── vendor/             d3-geo, topojson-client and the Natural Earth world map
 ```
 
 ## Possible next steps

@@ -1,8 +1,10 @@
 mod direct;
 #[cfg(target_os = "macos")]
 mod dock;
+mod geo;
 #[cfg(target_os = "macos")]
 mod handler;
+mod map;
 mod menu;
 mod migrate;
 mod rss;
@@ -1075,6 +1077,8 @@ pub fn run() {
             shared.apply_limits();
             shared.apply_torrent_limits();
             app.manage(shared.clone());
+            app.manage(Arc::new(geo::Geo::new(cfg_dir.clone())));
+            app.manage(map::PeerRates::default());
 
             // Background workers.
             tauri::async_runtime::spawn(log_trim_loop(log_file));
@@ -1107,6 +1111,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            map::map_snapshot,
+            map::map_download_db,
             add_torrent,
             add_torrent_bytes,
             list_torrents,

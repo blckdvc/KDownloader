@@ -231,12 +231,22 @@
     <div id="view-bandwidth" class="view" hidden>
       <div class="bw-head">
         <h2>Bandwidth</h2>
+        <div class="bw-seg" role="group" aria-label="View">
+          <button type="button" data-bw-view="chart" class="active">Chart</button>
+          <button type="button" data-bw-view="map">Map</button>
+        </div>
+        <div class="map-chips" id="map-chips" hidden>
+          <button type="button" class="chip" data-kind="down"><i style="background:var(--bw-torrent-down)"></i>Torrent ↓ <b id="map-t-down"></b></button>
+          <button type="button" class="chip" data-kind="up"><i style="background:var(--bw-torrent-up)"></i>Torrent ↑ <b id="map-t-up"></b></button>
+          <button type="button" class="chip" data-kind="dd"><i class="sq" style="background:var(--bw-direct)"></i>Direct Download <b id="map-t-dd"></b></button>
+        </div>
         <div class="bw-ranges" role="group" aria-label="Time range">
           <button type="button" data-range="60" class="ghost active">1 min</button>
           <button type="button" data-range="300" class="ghost">5 min</button>
           <button type="button" data-range="1800" class="ghost">30 min</button>
         </div>
       </div>
+      <div id="bw-chart-view" class="bw-chart-view">
       <div class="bw-plot">
         <svg id="bw-chart" role="img" aria-label="Transfer speeds over time"></svg>
         <div id="bw-tip" class="bw-tip" hidden></div>
@@ -246,6 +256,35 @@
         <thead><tr><th>Series</th><th class="num">Now</th><th class="num">Peak</th><th class="num">Average</th></tr></thead>
         <tbody id="bw-summary"></tbody>
       </table>
+      </div>
+      <div id="map-view" class="map-view" hidden>
+        <div class="map-card">
+          <svg id="map-svg" role="img" aria-label="Where the current transfers come from and go to"></svg>
+          <div id="map-tip" class="map-tip" hidden></div>
+          <div id="map-setup" class="map-setup" hidden>
+            <h3>Locate peers and servers</h3>
+            <p>The map places addresses with DB-IP's free city database, kept on your Mac: no address is sent anywhere to be located.</p>
+            <button type="button" id="map-get-db" class="primary">Download the database (60 MB)</button>
+            <p id="map-db-state" class="muted"></p>
+          </div>
+          <div class="map-zoom"><button type="button" id="map-zoom-in" title="Zoom in">+</button><button type="button" id="map-zoom-out" title="Zoom out">−</button></div>
+          <div class="map-note">Approximate locations. <a href="https://db-ip.com" id="map-credit">IP Geolocation by DB-IP</a></div>
+        </div>
+        <aside class="map-side">
+          <div class="map-side-head"><h3>By country</h3><span id="map-count"></span></div>
+          <div class="map-side-scroll">
+            <table class="map-table">
+              <thead><tr><th>Country</th><th class="num">Peers</th><th class="num">↓</th><th class="num">↑</th></tr></thead>
+              <tbody id="map-countries"></tbody>
+            </table>
+            <p id="map-empty" class="muted map-empty" hidden>No torrent peers connected.</p>
+          </div>
+          <div class="map-servers">
+            <h3>Direct Download servers</h3>
+            <div id="map-server-list"></div>
+          </div>
+        </aside>
+      </div>
     </div>
 
     <div id="keys-modal" class="overlay" hidden>
@@ -451,5 +490,9 @@
     <script src="main.js"></script>
     <script src="direct.js"></script>
     <script src="bandwidth.js"></script>
+    <script src="vendor/d3-array.min.js"></script>
+    <script src="vendor/d3-geo.min.js"></script>
+    <script src="vendor/topojson-client.min.js"></script>
+    <script src="map.js"></script>
   </body>
 </html>

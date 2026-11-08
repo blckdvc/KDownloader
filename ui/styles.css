@@ -308,3 +308,75 @@ code { background: var(--track); padding: 1px 5px; border-radius: 4px; font-size
 .about-donate:hover:not(:disabled) { background: none; opacity: .85; }
 .about-donate img { display: block; max-width: 300px; width: 100%; height: auto; }
 .about-credits { margin-top: 12px !important; font-size: 11.5px; }
+
+/* Bandwidth: chart or map */
+.bw-head { gap: 14px; }
+.bw-head h2 { margin-right: 0; }
+.bw-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; margin-right: auto; }
+.bw-seg button { border: none; border-radius: 0; padding: 3px 11px; font-size: 12px; background: var(--panel-2); }
+.bw-seg button + button { border-left: 1px solid var(--border); }
+.bw-seg button.active { background: var(--sel); font-weight: 600; }
+.bw-chart-view { flex: 1 1 auto; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+
+.map-chips { display: flex; gap: 6px; }
+.map-chips .chip { display: inline-flex; align-items: center; gap: 7px; padding: 3px 10px; font-size: 12px; border-radius: 99px; }
+.map-chips .chip i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.map-chips .chip i.sq { border-radius: 2px; }
+.map-chips .chip b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.map-chips .chip.off { opacity: .45; }
+.map-chips .chip.off i { background: transparent !important; box-shadow: inset 0 0 0 1.5px var(--muted); }
+
+.map-view { flex: 1 1 auto; display: flex; gap: 12px; min-height: 0; }
+.map-card { position: relative; flex: 1 1 auto; min-width: 0; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+#map-svg { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; }
+#map-svg.dragging { cursor: grabbing; }
+.map-grat { fill: none; stroke: var(--border); stroke-width: .6; opacity: .6; }
+.map-land { fill: var(--track); stroke: var(--panel-2); stroke-width: .7; }
+.map-land.active { fill: color-mix(in srgb, var(--text) 13%, var(--track)); }
+.map-land.hl { fill: color-mix(in srgb, var(--text) 30%, var(--track)); }
+.map-arc { fill: none; stroke-width: 1.4; stroke-linecap: round; opacity: .55; stroke-dasharray: 3 7; animation: map-flow 1.1s linear infinite; pointer-events: none; }
+.map-arc.up { animation-direction: reverse; }
+.map-arc.dd { stroke-width: 2; opacity: .75; stroke-dasharray: 5 6; }
+@keyframes map-flow { to { stroke-dashoffset: -10; } }
+@media (prefers-reduced-motion: reduce) { .map-arc { animation: none; stroke-dasharray: none; } }
+.map-node { stroke: var(--panel-2); stroke-width: 2; cursor: pointer; }
+.map-node.idle { fill: var(--muted); opacity: .7; }
+.map-node:hover, .map-node.hl { stroke: var(--text); }
+.map-home-halo { fill: var(--accent); animation: map-halo 2.4s ease-out infinite; transform-box: fill-box; transform-origin: center; pointer-events: none; }
+@keyframes map-halo { from { transform: scale(.6); opacity: .35; } to { transform: scale(2.2); opacity: 0; } }
+.map-home { fill: var(--panel); stroke: var(--accent); stroke-width: 3; }
+.map-label { font-size: 11px; fill: var(--muted); paint-order: stroke; stroke: var(--panel-2); stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
+.map-label.home { font-weight: 600; fill: var(--text); font-size: 11.5px; stroke-width: 4px; }
+.map-tip { position: absolute; min-width: 180px; padding: 8px 11px; font-size: 12px; pointer-events: none; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.14); z-index: 2; }
+.map-tip h4 { margin: 0 0 5px; font-size: 12.5px; }
+.map-tip .row { display: flex; justify-content: space-between; gap: 16px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.map-tip .row b { color: var(--text); font-weight: 600; }
+.map-zoom { position: absolute; right: 10px; bottom: 10px; display: flex; flex-direction: column; gap: 4px; }
+.map-zoom button { width: 28px; height: 28px; padding: 0; font-size: 15px; line-height: 1; background: var(--panel); }
+.map-note { position: absolute; left: 12px; bottom: 10px; font-size: 11px; color: var(--muted); }
+.map-note a { color: var(--muted); }
+.map-setup { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px; text-align: center; background: color-mix(in srgb, var(--panel-2) 82%, transparent); }
+.map-setup h3 { margin: 0; font-size: 14px; }
+.map-setup p { margin: 0; max-width: 380px; font-size: 12.5px; line-height: 1.45; }
+
+.map-side { flex: 0 0 320px; display: flex; flex-direction: column; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; min-height: 0; }
+.map-side-head { padding: 10px 12px 6px; display: flex; justify-content: space-between; align-items: baseline; }
+.map-side-head h3, .map-servers h3 { margin: 0; font-size: 12.5px; }
+.map-side-head span { font-size: 11px; color: var(--muted); }
+.map-side-scroll { overflow: auto; flex: 1 1 auto; }
+.map-table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.map-table th { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); text-align: left; padding: 4px 9px; border-bottom: 1px solid var(--border); }
+.map-table th.num, .map-table td.num { text-align: right; }
+.map-table td { white-space: nowrap; padding: 5px 9px; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+.map-table tbody tr:hover, .map-table tr.hl { background: var(--sel); }
+.map-table .name { display: flex; flex-direction: column; gap: 3px; }
+.map-bar { display: flex; height: 4px; border-radius: 2px; overflow: hidden; gap: 1px; }
+.map-bar span { display: block; height: 100%; min-width: 2px; }
+.map-empty { padding: 4px 12px; font-size: 12px; }
+.map-servers { border-top: 1px solid var(--border); padding: 8px 12px 10px; }
+.map-servers h3 { margin-bottom: 6px; }
+.map-srv { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; }
+.map-srv i { width: 9px; height: 9px; border-radius: 2px; background: var(--bw-direct); flex: none; }
+.map-srv .where { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-srv .spd { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 600; }
+.map-srv.none { color: var(--muted); }
