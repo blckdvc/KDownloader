@@ -38,6 +38,8 @@ Free and open-source 🙂 — if you feel like it, buy me a few tokens:
 - **Delete archive after extraction, per torrent**: from the right-click menu of a torrent that
   has archives and hasn't finished. It's extracted, then cleaned up, whatever the setting says.
 
+![KDownloader — Settings, with a tab for torrents and one for Direct Download, and the archive options](docs/screenshot-settings-light.png)
+
 ### Speed and scheduling
 
 - **Global limits**, adjustable live
@@ -56,8 +58,6 @@ Free and open-source 🙂 — if you feel like it, buy me a few tokens:
 - Incoming port with **UPnP** (IGD v1 and v2, which librqbit's own forwarder misses), optional **µTP**,
   and binding to a network interface (useful with a VPN)
 - Logs show only the tracker host, since private-tracker URLs carry a passkey
-
-![KDownloader — Settings, with a tab for torrents and one for Direct Download, and the archive options](docs/screenshot-settings-light.png)
 
 ### Automation
 
