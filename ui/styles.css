@@ -390,3 +390,7 @@ code { background: var(--track); padding: 1px 5px; border-radius: 4px; font-size
 .settings-tabs button.active { background: var(--sel); font-weight: 600; }
 .hint.warn { display: none; color: var(--warn); }
 .hint.warn.on { display: block; }
+
+/* Windows and Linux: the system draws the title bar, and the default-app
+   choice belongs to the installer. */
+.not-mac .titlebar, .not-mac .mac-only { display: none; }

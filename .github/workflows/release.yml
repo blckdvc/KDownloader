@@ -1,7 +1,8 @@
 name: Release
 
-# Build KDownloader on macOS and publish a draft GitHub Release with the .dmg/.app
-# and the local-signing helper script attached. Trigger by pushing a version
+# Build KDownloader on macOS, Windows and Linux and publish a draft GitHub Release
+# with the .dmg/.app, the Windows installer, the .deb and .AppImage, and the macOS
+# local-signing helper script attached. Trigger by pushing a version
 # tag (e.g. `git tag v0.1.0 && git push origin v0.1.0`) or run it manually.
 on:
   push:
@@ -13,9 +14,20 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-latest # Apple Silicon runner (arm64)
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-latest is an Apple Silicon (arm64) runner.
+        platform: [macos-latest, windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libdbus-1-dev libxdo-dev libssl-dev
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -34,6 +46,13 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "KDownloader ${{ github.ref_name }}"
           releaseBody: |
+            ### Install on Windows
+            Run `KDownloader_…_x64-setup.exe`.
+
+            ### Install on Linux
+            Install the `.deb` (Debian, Ubuntu), or make the `.AppImage` executable and run it.
+            ZIP and 7z extraction needs `bsdtar` (package `libarchive-tools`), which the `.deb` installs.
+
             ### Install on macOS
             1. Mount the `.dmg` and drag **KDownloader** to Applications.
             2. Download `kdownloader-macos-sign.command` (attached below) and run it once:
@@ -46,6 +65,7 @@ jobs:
           prerelease: false
 
       - name: Attach the macOS signing script
+        if: runner.os == 'macOS'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
