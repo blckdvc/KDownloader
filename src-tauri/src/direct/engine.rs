@@ -5,8 +5,8 @@ use crate::direct::links;
 use crate::direct::transfers;
 use crate::direct::providers::{Accounts, Provider, Unlocked};
 use reqwest::header::{
-    HeaderMap, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, ETAG, IF_RANGE,
-    LAST_MODIFIED, RANGE, RETRY_AFTER,
+    HeaderMap, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, COOKIE, ETAG, IF_RANGE,
+    LAST_MODIFIED, RANGE, RETRY_AFTER, USER_AGENT,
 };
 use reqwest::{Client, Response, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -137,6 +137,9 @@ pub struct Item {
     pub extract_speed: u64,
     #[serde(default)]
     pub skip_extraction: bool,
+    /// The page window's session, for a host that serves the file only to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cookie: Option<String>,
 }
 
 impl Item {
@@ -183,6 +186,8 @@ pub struct Probe {
     html: bool,
     #[serde(skip)]
     transient: bool,
+    #[serde(skip)]
+    cookie: Option<String>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -256,6 +261,7 @@ struct Job {
     relinkable: bool,
     /// Decrypts the bytes as they arrive, for MEGA's encrypted files.
     cipher: Option<transfers::Cipher>,
+    cookie: Option<String>,
 }
 
 struct Inner {
@@ -590,6 +596,7 @@ impl Engine {
                 extract_total: None,
                 extract_speed: 0,
                 skip_extraction: false,
+                cookie: None,
             });
             id
         };
@@ -601,11 +608,12 @@ impl Engine {
     }
 
     /// Queues a file whose address a page window found, after checking it.
-    pub async fn add_file(&self, url: &str) -> Result<(), String> {
-        let found = probe(&self.0.http, url).await;
+    pub async fn add_file(&self, url: &str, cookie: Option<String>) -> Result<(), String> {
+        let mut found = probe_with(&self.0.http, url, cookie.as_deref()).await;
         if !found.online || found.html {
             return Err(found.error.unwrap_or_else(|| "The site didn't hand over the file".into()));
         }
+        found.cookie = cookie;
         self.add_with(vec![found], AddOptions::default());
         Ok(())
     }
@@ -647,6 +655,7 @@ impl Engine {
                     extract_total: None,
                     extract_speed: 0,
                     skip_extraction: options.skip_extraction,
+                    cookie: p.cookie,
                 };
                 st.items.push(item);
             }
@@ -921,7 +930,7 @@ impl Engine {
         if fresh || generated {
             let info = tokio::select! {
                 _ = token.cancelled() => return Err(DlError::Cancelled),
-                p = probe(&self.0.http, &target) => p,
+                p = probe_with(&self.0.http, &target, item.cookie.as_deref()) => p,
             };
             if !info.online && link_is_fresh && generated {
                 return Err(DlError::Relink);
@@ -984,6 +993,7 @@ impl Engine {
                 validator: item.validator.clone(),
                 relinkable: generated,
                 cipher: cipher.clone(),
+                cookie: item.cookie.clone(),
             };
             set.spawn(self.clone().run_segment(job, group.clone()));
         }
@@ -1037,6 +1047,9 @@ impl Engine {
         let pos = segment.start + segment.done;
 
         let mut request = self.0.http.get(&job.url);
+        if let Some(cookie) = &job.cookie {
+            request = request.header(COOKIE, cookie).header(USER_AGENT, links::BROWSER_UA);
+        }
         if job.resumable {
             let end = segment.end.map(|e| e.to_string()).unwrap_or_default();
             request = request.header(RANGE, format!("bytes={pos}-{end}"));
@@ -1484,6 +1497,14 @@ async fn extract_archive(archive: &Path, target: &Path) -> Result<(), String> {
 /// Sends the link through a debrid service if one handles its host. The queue
 /// keeps the original URL; a generated one doesn't outlive the session.
 async fn inspect(http: &Client, accounts: &Accounts, url: &str) -> Probe {
+    // MediaFire's own page hands out its file freely: the debrid account,
+    // which spends its quota, is only the fallback.
+    if transfers::is_mediafire(url) {
+        let direct = inspect_share(http, url).await;
+        if direct.online || !accounts.has_account_for(url).await {
+            return direct;
+        }
+    }
     let (provider, unlocked) = match accounts.unlock_any(url).await {
         None => {
             if links::needs_browser(url) {
@@ -1568,23 +1589,31 @@ async fn inspect_share(http: &Client, url: &str) -> Probe {
 }
 
 async fn probe(http: &Client, url: &str) -> Probe {
-    let mut result = probe_once(http, url).await;
+    probe_with(http, url, None).await
+}
+
+async fn probe_with(http: &Client, url: &str, cookie: Option<&str>) -> Probe {
+    let mut result = probe_once(http, url, cookie).await;
     for attempt in 0..PROBE_RETRIES {
         if !result.transient {
             break;
         }
         sleep(Duration::from_millis(500 << attempt)).await;
-        result = probe_once(http, url).await;
+        result = probe_once(http, url, cookie).await;
     }
     result
 }
 
 /// Asks for the first byte: a 206 tells us both the size and range support.
-async fn probe_once(http: &Client, url: &str) -> Probe {
+async fn probe_once(http: &Client, url: &str, cookie: Option<&str>) -> Probe {
     let mut result = Probe { url: url.to_string(), ..Default::default() };
-    let mut sent = http.get(url).header(RANGE, "bytes=0-0").send().await;
+    let get = || match cookie {
+        Some(cookie) => http.get(url).header(COOKIE, cookie).header(USER_AGENT, links::BROWSER_UA),
+        None => http.get(url),
+    };
+    let mut sent = get().header(RANGE, "bytes=0-0").send().await;
     if matches!(&sent, Ok(r) if r.status() == StatusCode::RANGE_NOT_SATISFIABLE) {
-        sent = http.get(url).send().await; // empty file
+        sent = get().send().await; // empty file
     }
     let resp = match sent {
         Ok(resp) => resp,

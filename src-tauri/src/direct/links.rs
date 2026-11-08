@@ -109,6 +109,11 @@ pub fn is_buzzheavier(url: &str) -> bool {
     ["buzzheavier.com", "bzzhr.co"].iter().any(|d| host == *d || host.ends_with(&format!(".{d}")))
 }
 
+/// workupload's file server, where its start page sends the window.
+pub fn is_workupload_file(url: &Url) -> bool {
+    url.host_str().is_some_and(|h| h.ends_with(".workupload.com")) && url.path().starts_with("/download/")
+}
+
 /// buzzheavier's file address: a signed link on one of its file servers,
 /// which serves the file with resume and no browser check.
 pub fn is_buzzheavier_file(url: &Url) -> bool {
