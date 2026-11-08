@@ -1,5 +1,5 @@
 //! Extracts the archives of torrents that finish downloading, when the user
-//! turned it on, and optionally deletes them afterwards. A torrent whose
+//! turned it on or marked the torrent, and optionally deletes them afterwards. A torrent whose
 //! archives are deleted can't seed them any more, so it's paused.
 
 use crate::direct::engine::{extract_archive, unique_path};
@@ -42,8 +42,21 @@ fn archives(files: &[PathBuf]) -> Vec<Archive> {
     found
 }
 
-/// Extracts a finished torrent's archives next to them.
-async fn unpack(shared: Shared, handle: Arc<librqbit::ManagedTorrent>) {
+/// Whether a torrent's file list holds something to extract.
+pub fn has_archives(handle: &librqbit::ManagedTorrent) -> bool {
+    handle
+        .with_metadata(|m| {
+            m.file_infos.iter().any(|f| {
+                let name = f.relative_filename.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                links::rar_volume(&name).map_or_else(|| links::is_extractable(&name), |(_, n)| n == 1)
+            })
+        })
+        .unwrap_or(false)
+}
+
+/// Extracts a finished torrent's archives next to them, and deletes them
+/// afterwards when asked.
+async fn unpack(shared: Shared, handle: Arc<librqbit::ManagedTorrent>, delete: bool) {
     let root = handle.output_folder().to_path_buf();
     let files: Vec<PathBuf> = handle
         .with_metadata(|m| m.file_infos.iter().map(|f| root.join(&f.relative_filename)).collect::<Vec<_>>())
@@ -70,8 +83,7 @@ async fn unpack(shared: Shared, handle: Arc<librqbit::ManagedTorrent>) {
             let _ = tokio::fs::remove_dir_all(&target).await;
             continue;
         }
-        // Read again: the setting may have changed during a long extraction.
-        if shared.settings.lock().is_ok_and(|s| s.torrent_delete_archive) {
+        if delete {
             for volume in &archive.volumes {
                 deleted |= tokio::fs::remove_file(volume).await.is_ok();
             }
@@ -95,11 +107,16 @@ pub async fn run(shared: Shared) {
         let now: Vec<(String, bool, Arc<librqbit::ManagedTorrent>)> = shared.session.with_torrents(|it| {
             it.map(|(_, h)| (format!("{:?}", h.info_hash()), h.stats_brief().finished, h.clone())).collect()
         });
-        let enabled = shared.settings.lock().is_ok_and(|s| s.torrent_extract);
+        let (extract, delete) =
+            shared.settings.lock().map(|s| (s.torrent_extract, s.torrent_extract && s.torrent_delete_archive)).unwrap_or_default();
         let mut seen = HashMap::with_capacity(now.len());
         for (hash, done, handle) in now {
-            if done && finished.get(&hash) == Some(&false) && enabled {
-                tauri::async_runtime::spawn(unpack(shared.clone(), handle));
+            if done && finished.get(&hash) == Some(&false) {
+                // A torrent marked from its menu is extracted, then cleaned up, on its own.
+                let marked = shared.meta.lock().is_ok_and(|m| m.get(&hash).is_some_and(|t| t.delete_archive));
+                if extract || marked {
+                    tauri::async_runtime::spawn(unpack(shared.clone(), handle, delete || marked));
+                }
             }
             seen.insert(hash, done);
         }
