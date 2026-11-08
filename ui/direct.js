@@ -466,10 +466,7 @@ document.addEventListener("keydown", (e) => {
   }
   const tag = (e.target.tagName || "").toLowerCase();
   if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;
-  if (!$("modal").hidden) {
-    if (e.key === "Escape") $("modal").hidden = true;
-    return;
-  }
+  if (!document.getElementById("modal").hidden) return; // settings open: main.js handles it
   if (grabberOpen) {
     const target = listTarget(e, grabOrder(), grabCursor);
     if (target !== undefined) {
@@ -732,7 +729,8 @@ async function renderAccounts() {
   drawAccounts();
 }
 
-async function openSettings() {
+// The Direct Download tab of the shared Settings window (main.js owns it).
+async function fillSettings() {
   const s = await call("dd_get_settings");
   if (!s) return;
   $("s-dir").value = s.download_dir;
@@ -744,19 +742,10 @@ async function openSettings() {
   $("s-clipboard").checked = s.watch_clipboard;
   $("s-autostart").checked = s.auto_start_clipboard;
   $("s-removal").value = rememberedRemoval() || "";
-  $("modal").hidden = false;
   openAccount = null;
   renderAccounts();
 }
-$("settings-btn").addEventListener("click", openSettings);
-$("limits-badge").addEventListener("click", async () => {
-  await openSettings();
-  $("s-limit").select();
-});
-$("s-removal").addEventListener("change", (e) => setRememberedRemoval(e.target.value));
-$("modal-close").addEventListener("click", () => ($("modal").hidden = true));
-$("modal-cancel").addEventListener("click", () => ($("modal").hidden = true));
-$("modal-save").addEventListener("click", async () => {
+async function saveSettings() {
   await call("dd_set_settings", {
     settings: {
       download_dir: $("s-dir").value.trim(),
@@ -769,9 +758,15 @@ $("modal-save").addEventListener("click", async () => {
       auto_start_clipboard: $("s-autostart").checked,
     },
   });
-  $("modal").hidden = true;
   loadSettings();
+}
+window.ddSettings = { fill: fillSettings, save: saveSettings };
+$("settings-btn").addEventListener("click", () => window.openSettings("direct"));
+$("limits-badge").addEventListener("click", async () => {
+  await window.openSettings("direct");
+  $("s-limit").select();
 });
+$("s-removal").addEventListener("change", (e) => setRememberedRemoval(e.target.value));
 
 async function loadSettings() {
   settings = await call("dd_get_settings");

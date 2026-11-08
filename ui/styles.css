@@ -380,3 +380,13 @@ code { background: var(--track); padding: 1px 5px; border-radius: 4px; font-size
 .map-srv .where { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .map-srv .spd { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 600; }
 .map-srv.none { color: var(--muted); }
+
+/* Settings: one window, a page per tab */
+.settings-head { gap: 14px; }
+.settings-head h2 { flex: 0 0 auto; }
+.settings-tabs { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; margin-right: auto; }
+.settings-tabs button { border: none; border-radius: 0; padding: 4px 13px; font-size: 12px; background: var(--panel-2); }
+.settings-tabs button + button { border-left: 1px solid var(--border); }
+.settings-tabs button.active { background: var(--sel); font-weight: 600; }
+.hint.warn { display: none; color: var(--warn); }
+.hint.warn.on { display: block; }

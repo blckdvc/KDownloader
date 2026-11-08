@@ -42,6 +42,13 @@ Free and open-source 🙂 — if you feel like it, buy me a few tokens:
 - **Per-file selection**: choose which files to download, at add time or later
 - **Per-torrent save path** and **categories / tags**, with filters in the sidebar
 - **Resume across restarts** (session persistence + fastresume)
+- **Archive extraction**, off by default: a finished torrent's ZIP, 7z, RAR (multi-volume too) and
+  tar archives are unpacked next to them. Deleting the archive afterwards is a separate option:
+  the torrent can't seed the deleted files any more, so it's paused.
+- **Delete archive after extraction, per torrent**: from the right-click menu of a torrent that
+  has archives and hasn't finished. It's extracted, then cleaned up, whatever the setting says.
+
+![KDownloader — Settings, with a tab for torrents and one for Direct Download, and the archive options](docs/screenshot-settings-light.png)
 
 ### Speed and scheduling
 
@@ -61,8 +68,6 @@ Free and open-source 🙂 — if you feel like it, buy me a few tokens:
 - Incoming port with **UPnP** (IGD v1 and v2, which librqbit's own forwarder misses), optional **µTP**,
   and binding to a network interface (useful with a VPN)
 - Logs show only the tracker host, since private-tracker URLs carry a passkey
-
-![KDownloader — torrent settings, network and privacy](docs/screenshot-settings-light.png)
 
 ### Automation
 
@@ -95,7 +100,7 @@ A light download manager next to the torrent client, in the spirit of JDownloade
 ### Supported debrid services
 
 Premium link generators, each through its official API. Connect an account with its API key
-in **Settings → Premium accounts**; the key is stored in the macOS Keychain. Only links from
+in **Settings → Direct Download → Premium accounts**; the key is stored in the macOS Keychain. Only links from
 hosts your account supports are sent to the service, and when several accounts handle a host,
 the first one that works is used.
 
@@ -163,7 +168,7 @@ and the servers Direct Download fetches from, with their speeds and a table by c
 ## Keyboard
 
 A native menu bar with Transmission-style shortcuts: ⌘O open, ⌘U add links, ⌘1–4 tabs, ⌘I details,
-⌘/ and ⌘. resume / pause, ⌥⌘/ and ⌥⌘. for everything, ⌘R show in Finder, ⌥⌘↑↓ queue order, ⌘, settings.
+⌘/ and ⌘. resume / pause, ⌥⌘/ and ⌥⌘. for everything, ⌘R show in Finder, ⌥⌘↑↓ queue order, ⌘, settings (one window, with a Torrent and a Direct Download tab).
 Lists take arrows, ⇧-arrows, Home/End, Page Up/Down, Space (pause/resume), Return, ⌫ (remove)
 and ⌥⌘⌫ (move to Trash). Press **?** for the full list.
 
@@ -262,6 +267,7 @@ KDownloader/
 │   ├── src/menu.rs         menu bar and shortcuts
 │   ├── src/direct/         Direct Download engine, link grabbing, debrid providers, file-transfer services, Click'n'Load
 │   ├── src/rss.rs          RSS auto-download
+│   ├── src/unpack.rs       archive extraction for finished torrents
 │   ├── src/watch.rs        watch folder
 │   ├── src/upnp.rs         UPnP port forwarding
 │   ├── src/dock.rs         Dock speed meter
