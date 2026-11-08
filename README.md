@@ -1,11 +1,21 @@
 # KDownloader
 
-A light BitTorrent client and download manager for macOS, named as a nod to JDownloader.
+**Copy a link. That's it.** KDownloader watches your clipboard. Copy a MEGA folder, a Google Drive
+file or a debrid-able hoster link anywhere on your Mac, and it's already downloading, sorted into
+packages and unpacked when done. Copy a magnet, and it's waiting in the Torrent tab.
 
-- **Torrents**, Transmission-weight, on the [`librqbit`](https://crates.io/crates/librqbit) engine
-- **Direct Download** with nine premium debrid services and nine free hosts
-- Native and small: the UI runs in the macOS system WebView through [Tauri 2](https://tauri.app),
-  not in a 150 MB Electron bundle
+One small native app does what usually takes three: a BitTorrent client, a download manager and a
+debrid front-end. It's named as a nod to JDownloader, without the Java.
+
+- **Torrents** at Transmission weight, on the [`librqbit`](https://crates.io/crates/librqbit) engine
+- **Direct Download** through nine premium debrid services, or straight from nine free hosts:
+  MEGA, Google Drive, Dropbox, MediaFire, WeTransfer, pixeldrain and more. It even gets past the
+  browser checks that hosts put in front of downloaders.
+- **Hands-free**: links are checked, grouped into packages, downloaded over several connections
+  with resume, and the archives are extracted. Link protectors and Click'n'Load go to the same queue.
+- **A world map** of the peers and servers you exchange data with, live
+- **Truly native**: about 10 MB, the macOS system WebView through [Tauri 2](https://tauri.app), not
+  a 150 MB Electron bundle. It has a menu bar, notifications and a speed meter on the Dock icon.
 
 ![KDownloader — torrents in dark mode, with the Details panel on the peers](docs/screenshot-torrents-dark.png)
 
