@@ -319,48 +319,6 @@
       </div>
     </div>
 
-    <!-- Direct Download settings -->
-    <div id="dd-modal" class="overlay" hidden>
-      <div class="sheet">
-        <div class="sheet-head"><h2>Direct Download settings</h2><button id="dd-modal-close" class="ghost icon">✕</button></div>
-        <div class="sheet-body">
-          <section class="group">
-            <h3>Downloads</h3>
-            <label>Download folder
-              <span class="withbtn"><input id="dd-s-dir" type="text" />
-              <button type="button" class="ghost browse" data-target="dd-s-dir">Browse…</button></span>
-            </label>
-            <div class="grid2 dd-grid">
-              <label>Simultaneous downloads <input id="dd-s-active" type="number" min="1" max="20" /></label>
-              <label>Connections per file <input id="dd-s-chunks" type="number" min="1" max="16" /></label>
-              <label>Speed limit (KiB/s, 0 = unlimited) <input id="dd-s-limit" type="number" min="0" /></label>
-            </div>
-          </section>
-          <section class="group">
-            <h3>Behaviour</h3>
-            <label class="chk"><input id="dd-s-extract" type="checkbox" /> Extract archives when finished</label>
-            <label class="chk"><input id="dd-s-delete" type="checkbox" /> Delete archive after extraction</label>
-            <label class="chk"><input id="dd-s-clipboard" type="checkbox" /> Watch the clipboard for links</label>
-            <label class="chk"><input id="dd-s-autostart" type="checkbox" /> Start copied links automatically</label>
-            <label class="dd-removal">When removing items
-              <select id="dd-s-removal">
-                <option value="">Always ask</option>
-                <option value="keep">Keep the files</option>
-                <option value="trash">Move the files to Trash</option>
-              </select>
-            </label>
-          </section>
-          <section class="group">
-            <h3>Premium accounts</h3>
-            <p class="muted dd-hint">Keys are stored in the macOS Keychain. Only links from hosts your account supports are sent to the service.</p>
-            <div id="dd-accounts" class="dd-providers"></div>
-            <div id="dd-account-detail" class="dd-account-detail" hidden></div>
-          </section>
-        </div>
-        <div class="sheet-foot"><button id="dd-modal-cancel" class="ghost">Cancel</button><button id="dd-modal-save" class="primary">Save</button></div>
-      </div>
-    </div>
-
     <div id="dd-rm-modal" class="overlay" hidden>
       <div class="sheet small">
         <div class="sheet-head"><h2>Remove download</h2></div>
@@ -377,8 +335,13 @@
     <!-- Settings modal -->
     <div id="modal" class="overlay" hidden>
       <div class="sheet">
-        <div class="sheet-head"><h2>Settings</h2><button id="modal-close" class="ghost icon">✕</button></div>
-        <div class="sheet-body">
+        <div class="sheet-head settings-head"><h2>Settings</h2>
+          <div class="settings-tabs" role="tablist">
+            <button type="button" role="tab" data-settings-tab="torrent">Torrent</button>
+            <button type="button" role="tab" data-settings-tab="direct">Direct Download</button>
+          </div>
+          <button id="modal-close" class="ghost icon">✕</button></div>
+        <div class="sheet-body" id="settings-torrent">
           <section class="group">
             <h3>Folders</h3>
             <label>Default download folder
@@ -401,6 +364,12 @@
               <label>Global download (KiB/s, 0 = ∞) <input id="s-gdown" type="number" min="0" /></label>
               <label>Global upload (KiB/s, 0 = ∞) <input id="s-gup" type="number" min="0" /></label>
             </div>
+          </section>
+          <section class="group">
+            <h3>Archives</h3>
+            <label class="chk"><input id="s-extract" type="checkbox" /> Extract archives when a torrent finishes</label>
+            <label class="chk"><input id="s-delete" type="checkbox" /> Delete archive after extraction</label>
+            <p class="hint warn" id="s-delete-warn">⚠︎ Deleting the archive stops the torrent from seeding: its files are gone, so KDownloader pauses it. On private trackers this can hurt your ratio.</p>
           </section>
           <section class="group">
             <h3>Links</h3>
@@ -448,6 +417,40 @@
             <div id="feeds"></div>
             <button id="add-feed" class="ghost">+ Add feed</button>
             <p class="hint">Rules are title regexes, one per line; empty = everything in the feed.</p>
+          </section>
+        </div>
+        <div class="sheet-body" id="settings-direct" hidden>
+          <section class="group">
+            <h3>Downloads</h3>
+            <label>Download folder
+              <span class="withbtn"><input id="dd-s-dir" type="text" />
+              <button type="button" class="ghost browse" data-target="dd-s-dir">Browse…</button></span>
+            </label>
+            <div class="grid2 dd-grid">
+              <label>Simultaneous downloads <input id="dd-s-active" type="number" min="1" max="20" /></label>
+              <label>Connections per file <input id="dd-s-chunks" type="number" min="1" max="16" /></label>
+              <label>Speed limit (KiB/s, 0 = unlimited) <input id="dd-s-limit" type="number" min="0" /></label>
+            </div>
+          </section>
+          <section class="group">
+            <h3>Behaviour</h3>
+            <label class="chk"><input id="dd-s-extract" type="checkbox" /> Extract archives when finished</label>
+            <label class="chk"><input id="dd-s-delete" type="checkbox" /> Delete archive after extraction</label>
+            <label class="chk"><input id="dd-s-clipboard" type="checkbox" /> Watch the clipboard for links</label>
+            <label class="chk"><input id="dd-s-autostart" type="checkbox" /> Start copied links automatically</label>
+            <label class="dd-removal">When removing items
+              <select id="dd-s-removal">
+                <option value="">Always ask</option>
+                <option value="keep">Keep the files</option>
+                <option value="trash">Move the files to Trash</option>
+              </select>
+            </label>
+          </section>
+          <section class="group">
+            <h3>Premium accounts</h3>
+            <p class="muted dd-hint">Keys are stored in the macOS Keychain. Only links from hosts your account supports are sent to the service.</p>
+            <div id="dd-accounts" class="dd-providers"></div>
+            <div id="dd-account-detail" class="dd-account-detail" hidden></div>
           </section>
         </div>
         <div class="sheet-foot"><button id="modal-cancel" class="ghost">Cancel</button><button id="modal-save" class="primary">Save</button></div>

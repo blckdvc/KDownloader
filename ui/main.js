@@ -325,6 +325,7 @@ $("tbody").addEventListener("contextmenu", (e) => {
     { key: "⇧⌘L", label: `⚡ Speed limits…${t.down_kbps || t.up_kbps ? ` (${limitText(t)})` : ""}`, act: () => openTorrentLimits([id]) },
     { key: "⌘R", label: "📂 Open destination folder", act: () => t.output_folder && invoke("reveal_path", { path: t.output_folder }).catch(showError) },
     { key: "⌘I", label: "ⓘ Details / category…", act: () => { selectTorrent(id); showDetails(true); } },
+    ...archiveEntry(t),
     { sep: true },
     { label: "📋 Copy info hash", act: () => { try { navigator.clipboard.writeText(t.info_hash || ""); } catch (_) {} } },
     { sep: true },
@@ -333,6 +334,21 @@ $("tbody").addEventListener("contextmenu", (e) => {
   ];
   showContextMenu(e, items);
 });
+
+// Only a torrent with archives still to download gets the entry, and only
+// while Settings doesn't already delete every torrent's archives.
+function archiveEntry(t) {
+  const s = settingsCache || {};
+  if (!t.has_archives || t.stats?.finished || (s.torrent_extract && s.torrent_delete_archive)) return [];
+  const on = !!t.delete_archive;
+  return [{
+    label: on ? "✓ Delete archive after extraction" : "🗜 Delete archive after extraction",
+    act: () => invoke("set_delete_archive", { id: t.id, on: !on }).then(() => {
+      if (!on) showNotice("When it finishes, this torrent's archives will be extracted, then deleted: it will stop seeding them.");
+      refresh();
+    }).catch(showError),
+  }];
+}
 
 // ---- per-torrent speed limits -------------------------------------------
 const limitText = (t) => [t.down_kbps && `↓ ${t.down_kbps}`, t.up_kbps && `↑ ${t.up_kbps}`].filter(Boolean).join(" ") + " KiB/s";
@@ -590,7 +606,24 @@ async function syncDefaultButton() {
 }
 $("make-default").addEventListener("click", () => invoke("make_default_handler").then(syncDefaultButton).catch(showError));
 
-function openSettings() {
+// One Settings window for both tabs; each tab's ⚙ opens it on its own page.
+function showSettingsTab(tab) {
+  for (const b of document.querySelectorAll("[data-settings-tab]")) {
+    const on = b.dataset.settingsTab === tab;
+    b.classList.toggle("active", on); b.setAttribute("aria-selected", on);
+  }
+  $("settings-torrent").hidden = tab !== "torrent";
+  $("settings-direct").hidden = tab !== "direct";
+  $("settings-torrent").scrollTop = 0; $("settings-direct").scrollTop = 0;
+}
+for (const b of document.querySelectorAll("[data-settings-tab]")) b.addEventListener("click", () => showSettingsTab(b.dataset.settingsTab));
+function syncArchiveOptions() {
+  $("s-delete").disabled = !$("s-extract").checked;
+  $("s-delete-warn").classList.toggle("on", $("s-extract").checked && $("s-delete").checked);
+}
+$("s-extract").addEventListener("change", syncArchiveOptions);
+$("s-delete").addEventListener("change", syncArchiveOptions);
+async function openSettings(tab = "torrent") {
   const s = settingsCache || {};
   syncDefaultButton();
   $("s-downloaddir").value = s.download_dir || "";
@@ -601,9 +634,13 @@ function openSettings() {
   $("s-rss").checked = !!s.rss_enabled; $("s-rssint").value = s.rss_interval_min ?? 15;
   $("s-port").value = s.listen_port ?? 51413; $("s-upnp").checked = s.upnp_enabled ?? true; $("s-utp").checked = !!s.utp_enabled; $("s-bind").value = s.bind_device || "";
   $("s-proxy").value = s.proxy_url || ""; $("s-blocklist").value = s.blocklist_url || ""; $("s-peers").value = s.peer_limit || ""; $("s-trackers").value = s.extra_trackers || ""; $("s-encryption").value = s.encryption || "preferred";
+  $("s-extract").checked = !!s.torrent_extract; $("s-delete").checked = !!s.torrent_delete_archive; syncArchiveOptions();
   const fe = $("feeds"); fe.innerHTML = ""; (s.feeds || []).forEach((f) => fe.appendChild(feedRow(f)));
+  showSettingsTab(tab);
   $("modal").hidden = false;
+  await window.ddSettings?.fill();
 }
+window.openSettings = openSettings;
 async function saveSettings() {
   const feeds = [...$("feeds").querySelectorAll(".feed")].map((el) => ({
     url: el.querySelector(".f-url").value.trim(), category: el.querySelector(".f-cat").value.trim(),
@@ -618,16 +655,19 @@ async function saveSettings() {
     rss_enabled: $("s-rss").checked, rss_interval_min: Math.max(1, num("s-rssint")), feeds,
     listen_port: Math.min(65535, Math.max(1, num("s-port") || 51413)), upnp_enabled: $("s-upnp").checked, utp_enabled: $("s-utp").checked, bind_device: val("s-bind"),
     proxy_url: val("s-proxy"), blocklist_url: val("s-blocklist"), peer_limit: num("s-peers"), extra_trackers: $("s-trackers").value.trim(), encryption: $("s-encryption").value,
+    torrent_extract: $("s-extract").checked, torrent_delete_archive: $("s-extract").checked && $("s-delete").checked,
   };
   const restartKeys = ["listen_port", "upnp_enabled", "utp_enabled", "bind_device", "proxy_url", "blocklist_url", "peer_limit", "extra_trackers", "encryption"];
   const portChanged = settingsCache && restartKeys.some((k) => settings[k] !== settingsCache[k]);
   try {
-    await invoke("save_settings", { settings }); settingsCache = settings; updateLimitsBadge(); updateDirLabel(); $("modal").hidden = true;
+    await invoke("save_settings", { settings }); settingsCache = settings; updateLimitsBadge(); updateDirLabel();
+    await window.ddSettings?.save();
+    $("modal").hidden = true;
     if (portChanged) showNotice("Network settings saved: restart KDownloader for them to take effect.");
   }
   catch (e) { showError(e); }
 }
-$("settings-btn").addEventListener("click", openSettings);
+$("settings-btn").addEventListener("click", () => openSettings("torrent"));
 $("limits-badge").addEventListener("click", () => { openSettings(); $("s-gdown").select(); });
 $("modal-close").addEventListener("click", () => ($("modal").hidden = true));
 $("modal-cancel").addEventListener("click", () => ($("modal").hidden = true));
