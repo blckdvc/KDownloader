@@ -863,7 +863,8 @@ const LOG_CHECK_EVERY: Duration = Duration::from_secs(600);
 /// from the new end; a line written during the cut can be lost.
 fn trim_log(path: &Path) -> std::io::Result<()> {
     use std::io::{Read, Seek, SeekFrom, Write};
-    let mut file = std::fs::OpenOptions::new().read(true).append(true).open(path)?;
+    // Not opened for appending: Windows doesn't let such a handle truncate.
+    let mut file = std::fs::OpenOptions::new().read(true).write(true).open(path)?;
     if file.metadata()?.len() <= MAX_LOG_BYTES {
         return Ok(());
     }
@@ -871,6 +872,7 @@ fn trim_log(path: &Path) -> std::io::Result<()> {
     let mut tail = Vec::new();
     file.read_to_end(&mut tail)?;
     file.set_len(0)?;
+    file.seek(SeekFrom::Start(0))?;
     file.write_all(&tail)
 }
 
