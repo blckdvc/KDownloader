@@ -1,3 +1,10 @@
+// macOS draws the app's own title bar over the window and labels shortcuts
+// with ⌘; Windows and Linux have the system's title bar and Ctrl.
+const IS_MAC = /Mac/.test(navigator.userAgent);
+document.documentElement.classList.add(IS_MAC ? "mac" : "not-mac");
+const keyLabel = (k) => (IS_MAC ? k : k.replace(/⇧/g, "Shift+").replace(/⌥/g, "Alt+").replace(/⌘/g, "Ctrl+").replace(/⌫/g, "Del"));
+if (!IS_MAC) document.querySelectorAll("kbd").forEach((k) => (k.textContent = keyLabel(k.textContent)));
+
 // One-time move of saved preferences from the app's former name.
 try {
   for (const key of Object.keys(localStorage)) {
@@ -154,7 +161,7 @@ window.addEventListener("blur", () => hideCtx(true));
 // entries: [{ label, act, danger, key }] or { sep: true }; key is the shortcut shown.
 function showContextMenu(e, entries) {
   contextMenu.innerHTML = entries
-    .map((it, i) => (it.sep ? '<div class="ctx-sep"></div>' : `<div class="ctx-item${it.danger ? " danger" : ""}" data-i="${i}"><span>${it.label}</span>${it.key ? `<kbd>${it.key}</kbd>` : ""}</div>`))
+    .map((it, i) => (it.sep ? '<div class="ctx-sep"></div>' : `<div class="ctx-item${it.danger ? " danger" : ""}" data-i="${i}"><span>${it.label}</span>${it.key ? `<kbd>${keyLabel(it.key)}</kbd>` : ""}</div>`))
     .join("");
   contextMenu.hidden = false;
   contextShownAt = performance.now();

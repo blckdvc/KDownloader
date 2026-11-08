@@ -23,8 +23,48 @@ struct Igd {
     local_ip: Ipv4Addr,
 }
 
+/// The IPv4 default-route gateway, from the kernel's routing table.
+#[cfg(target_os = "linux")]
+fn default_gateway() -> Option<Ipv4Addr> {
+    parse_proc_route(&std::fs::read_to_string("/proc/net/route").ok()?)
+}
+
+/// `/proc/net/route`: the default route has destination 0, and its gateway
+/// is a little-endian hex address.
+#[cfg(any(target_os = "linux", test))]
+fn parse_proc_route(table: &str) -> Option<Ipv4Addr> {
+    table.lines().skip(1).find_map(|line| {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.get(1) != Some(&"00000000") {
+            return None;
+        }
+        let gateway = u32::from_str_radix(fields.get(2)?, 16).ok().filter(|g| *g != 0)?;
+        Some(Ipv4Addr::from(gateway.to_le_bytes()))
+    })
+}
+
+/// The IPv4 default-route gateway (`route print`).
+#[cfg(windows)]
+fn default_gateway() -> Option<Ipv4Addr> {
+    let out = crate::platform::command("route").args(["print", "-4", "0.0.0.0"]).output().ok()?;
+    parse_route_print(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// A `route print` line for the default route: destination, mask, gateway.
+#[cfg(any(windows, test))]
+fn parse_route_print(text: &str) -> Option<Ipv4Addr> {
+    text.lines().find_map(|line| {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        match fields.as_slice() {
+            ["0.0.0.0", "0.0.0.0", gateway, ..] => gateway.parse().ok(),
+            _ => None,
+        }
+    })
+}
+
 /// The IPv4 default-route gateway (macOS `route -n get default`).
 /// Absolute path: a Finder-launched app has a minimal PATH.
+#[cfg(not(any(target_os = "linux", windows)))]
 fn default_gateway() -> Option<Ipv4Addr> {
     let out = std::process::Command::new("/sbin/route")
         .args(["-n", "get", "default"])
@@ -47,6 +87,10 @@ fn default_gateway() -> Option<Ipv4Addr> {
 /// (not a public IP) so VPN/tunnel interfaces — which never carry the LAN
 /// subnet — can't hijack the choice and break SSDP multicast.
 fn local_ipv4(dev: Option<&str>) -> Option<Ipv4Addr> {
+    // Elsewhere the interface isn't looked up: the gateway picks it.
+    #[cfg(not(target_os = "macos"))]
+    let _ = dev;
+    #[cfg(target_os = "macos")]
     if let Some(dev) = dev {
         if let Ok(out) = std::process::Command::new("/usr/sbin/ipconfig")
             .args(["getifaddr", dev])
@@ -284,5 +328,22 @@ pub async fn run(http: reqwest::Client, port: u16, dev: Option<String>, map_udp:
             (LEASE_SECS / 2) as u64 // renew before the lease expires
         };
         tokio::time::sleep(Duration::from_secs(wait)).await;
+    }
+}
+
+#[cfg(test)]
+mod gateway_tests {
+    use super::*;
+
+    #[test]
+    fn reads_linux_and_windows_routes() {
+        let proc_route = "Iface\tDestination\tGateway \tFlags\n\
+            eth0\t0000A8C0\t00000000\t0001\n\
+            eth0\t00000000\t0101A8C0\t0003\n";
+        assert_eq!(parse_proc_route(proc_route), Some(Ipv4Addr::new(192, 168, 1, 1)));
+        let route_print = "Network Destination        Netmask          Gateway       Interface  Metric\n\
+                      0.0.0.0          0.0.0.0      192.168.1.254    192.168.1.20     25\n";
+        assert_eq!(parse_route_print(route_print), Some(Ipv4Addr::new(192, 168, 1, 254)));
+        assert_eq!(parse_route_print("nothing"), None);
     }
 }

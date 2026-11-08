@@ -303,6 +303,7 @@ async fn speed_limit_is_respected() {
     assert_eq!(std::fs::read(item.output.unwrap()).unwrap(), body);
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn archives_are_extracted() {
     let work = std::env::temp_dir().join(format!("kdownloader-direct-arch-{}", std::process::id()));

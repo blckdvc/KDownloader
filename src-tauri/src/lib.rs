@@ -2,11 +2,11 @@ mod direct;
 #[cfg(target_os = "macos")]
 mod dock;
 mod geo;
-#[cfg(target_os = "macos")]
 mod handler;
 mod map;
 mod menu;
 mod migrate;
+mod platform;
 mod rss;
 mod unpack;
 mod upnp;
@@ -438,6 +438,14 @@ impl Shared {
 
 /// Local wall-clock minutes-from-midnight. Shells out to `date` to avoid a
 /// timezone-database dependency; good enough for a once-per-30s scheduler tick.
+#[cfg(windows)]
+fn local_now_minutes() -> u32 {
+    use chrono::Timelike;
+    let now = chrono::Local::now();
+    now.hour() * 60 + now.minute()
+}
+
+#[cfg(unix)]
 fn local_now_minutes() -> u32 {
     if let Ok(out) = std::process::Command::new("date").arg("+%H:%M").output() {
         if let Ok(s) = String::from_utf8(out.stdout) {
@@ -793,13 +801,7 @@ async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
 
 #[tauri::command]
 fn reveal_path(path: String) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    std::process::Command::new("open").arg(&path).spawn().map(|_| ()).map_err(e2s)?;
-    #[cfg(target_os = "windows")]
-    std::process::Command::new("explorer").arg(&path).spawn().map(|_| ()).map_err(e2s)?;
-    #[cfg(all(unix, not(target_os = "macos")))]
-    std::process::Command::new("xdg-open").arg(&path).spawn().map(|_| ()).map_err(e2s)?;
-    Ok(())
+    platform::open(&path)
 }
 
 // ---------------------------------------------------------------------------
@@ -918,9 +920,13 @@ pub fn run() {
             let _ = tauri::Emitter::emit(app, "menu", event.id().as_ref());
         })
         // Both copies of the app share one session and port: focus the running one.
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_focus();
+            }
+            // macOS hands links over through Opened events instead.
+            if !cfg!(target_os = "macos") {
+                handler::open(app, handler::from_args(&args, std::path::Path::new(&cwd)));
             }
         }))
         .plugin(tauri_plugin_dialog::init())
@@ -1126,6 +1132,11 @@ pub fn run() {
             direct::init(app, &cfg_dir)?;
             #[cfg(target_os = "macos")]
             handler::keep_default();
+            #[cfg(not(target_os = "macos"))]
+            if let Ok(cwd) = std::env::current_dir() {
+                let args: Vec<String> = std::env::args().collect();
+                handler::open(app.handle(), handler::from_args(&args, &cwd));
+            }
             handler::flush(app.handle());
             for notice in notices {
                 app.dialog().message(notice).title("KDownloader").show(|_| {});
@@ -1162,9 +1173,9 @@ pub fn run() {
             direct::dd_add,
             direct::dd_list_unchecked,
             #[cfg(target_os = "macos")]
-            handler::is_default_handler,
+            handler::mac::is_default_handler,
             #[cfg(target_os = "macos")]
-            handler::make_default_handler,
+            handler::mac::make_default_handler,
             direct::open_donation_page,
             direct::dd_retry_extraction,
             direct::dd_move,
