@@ -32,6 +32,9 @@ Free and open-source 🙂 — if you feel like it, buy me a few tokens:
 - **Per-file selection**: choose which files to download, at add time or later
 - **Per-torrent save path** and **categories / tags**, with filters in the sidebar
 - **Resume across restarts** (session persistence + fastresume)
+- **Archive extraction**, off by default: a finished torrent's ZIP, 7z, RAR (multi-volume too) and
+  tar archives are unpacked next to them. Deleting the archive afterwards is a separate option:
+  the torrent can't seed the deleted files any more, so it's paused.
 
 ### Speed and scheduling
 
@@ -85,7 +88,7 @@ A light download manager next to the torrent client, in the spirit of JDownloade
 ### Supported debrid services
 
 Premium link generators, each through its official API. Connect an account with its API key
-in **Settings → Premium accounts**; the key is stored in the macOS Keychain. Only links from
+in **Settings → Direct Download → Premium accounts**; the key is stored in the macOS Keychain. Only links from
 hosts your account supports are sent to the service, and when several accounts handle a host,
 the first one that works is used.
 
@@ -153,7 +156,7 @@ and the servers Direct Download fetches from, with their speeds and a table by c
 ## Keyboard
 
 A native menu bar with Transmission-style shortcuts: ⌘O open, ⌘U add links, ⌘1–4 tabs, ⌘I details,
-⌘/ and ⌘. resume / pause, ⌥⌘/ and ⌥⌘. for everything, ⌘R show in Finder, ⌥⌘↑↓ queue order, ⌘, settings.
+⌘/ and ⌘. resume / pause, ⌥⌘/ and ⌥⌘. for everything, ⌘R show in Finder, ⌥⌘↑↓ queue order, ⌘, settings (one window, with a Torrent and a Direct Download tab).
 Lists take arrows, ⇧-arrows, Home/End, Page Up/Down, Space (pause/resume), Return, ⌫ (remove)
 and ⌥⌘⌫ (move to Trash). Press **?** for the full list.
 
@@ -252,6 +255,7 @@ KDownloader/
 │   ├── src/menu.rs         menu bar and shortcuts
 │   ├── src/direct/         Direct Download engine, link grabbing, debrid providers, file-transfer services, Click'n'Load
 │   ├── src/rss.rs          RSS auto-download
+│   ├── src/unpack.rs       archive extraction for finished torrents
 │   ├── src/watch.rs        watch folder
 │   ├── src/upnp.rs         UPnP port forwarding
 │   ├── src/dock.rs         Dock speed meter
