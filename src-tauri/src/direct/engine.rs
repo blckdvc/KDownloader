@@ -1377,9 +1377,13 @@ pub fn read_state<T: serde::de::DeserializeOwned + Default>(path: &Path) -> T {
 /// Deleting moves files to the Trash, so a wrong click stays recoverable. A file that's
 /// already gone is what was asked for, as when two torrents share it and leave together.
 pub fn to_trash(paths: &[PathBuf]) -> Result<(), trash::Error> {
-    use trash::macos::{DeleteMethod, TrashContextExtMacos};
+    #[allow(unused_mut)]
     let mut trash = trash::TrashContext::new();
-    trash.set_delete_method(DeleteMethod::NsFileManager);
+    #[cfg(target_os = "macos")]
+    {
+        use trash::macos::{DeleteMethod, TrashContextExtMacos};
+        trash.set_delete_method(DeleteMethod::NsFileManager);
+    }
     let mut failure = None;
     for path in paths {
         if let Err(e) = trash.delete(path) {
