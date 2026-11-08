@@ -16,7 +16,7 @@ Free and open-source 🙂 — if you feel like it, buy me a few tokens:
 
 **Contents:** [Torrents](#torrents) · [Direct Download](#direct-download) ·
 [Bandwidth](#bandwidth) · [Keyboard](#keyboard) · [macOS integration](#macos-integration) ·
-[Install](#install-on-macos) · [Build](#build-from-source) · [Known limits](#known-limits)
+[Install](#install-on-macos) · [Windows and Linux](#install-on-windows-and-linux) · [Build](#build-from-source) · [Known limits](#known-limits)
 
 ## Torrents
 
@@ -209,6 +209,21 @@ clients do, and the permission sticks.
   the paid, turnkey version of what this script does for free.
 - **Linux / Windows:** no signing needed; UPnP works out of the box.
 
+## Install on Windows and Linux
+
+The same [release](https://github.com/blckdvc/KDownloader/releases/latest) has:
+
+- **Windows**: `KDownloader_…_x64-setup.exe`, an installer for your user account. It registers
+  KDownloader for `.torrent` files and `magnet:` links.
+- **Linux**: a `.deb` for Debian and Ubuntu, and an `.AppImage` for the rest. ZIP and 7z
+  extraction uses `bsdtar`: the `.deb` installs it (`libarchive-tools`); with the AppImage,
+  install it yourself, or only tar and RAR archives are extracted. Debrid keys are kept by
+  the Secret Service (GNOME Keyring, KWallet).
+
+Everything works as on macOS, except the Dock speed meter and the Settings button that
+makes KDownloader the default app, which macOS alone has. Windows and Linux builds come
+from CI and have been tested less than the Mac one.
+
 ## Build from source
 
 Run in development:
@@ -229,6 +244,13 @@ Output lands in `src-tauri/target/release/bundle/`:
 
 - `macos/KDownloader.app` — the application
 - `dmg/KDownloader_0.2.3_aarch64.dmg` — a drag-to-install disk image
+- on Windows, `nsis/KDownloader_…_x64-setup.exe`; on Linux, `deb/` and `appimage/`
+
+On Linux, install the WebView and build libraries first (Debian, Ubuntu):
+
+```sh
+sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libdbus-1-dev libxdo-dev libssl-dev
+```
 
 > The build is ad-hoc signed. See **Install on macOS** above for why that
 > matters for automatic UPnP, and how to fix it for free.
@@ -256,6 +278,7 @@ KDownloader/
 │   ├── src/lib.rs          torrent session + Tauri commands
 │   ├── src/menu.rs         menu bar and shortcuts
 │   ├── src/direct/         Direct Download engine, link grabbing, debrid providers, file-transfer services, Click'n'Load
+│   ├── src/platform.rs     opening links and files on macOS, Windows and Linux
 │   ├── src/rss.rs          RSS auto-download
 │   ├── src/unpack.rs       archive extraction for finished torrents
 │   ├── src/watch.rs        watch folder
