@@ -3,7 +3,7 @@
 A light BitTorrent client and download manager for macOS, named as a nod to JDownloader.
 
 - **Torrents**, Transmission-weight, on the [`librqbit`](https://crates.io/crates/librqbit) engine
-- **Direct Download** with nine premium debrid services and six free hosts
+- **Direct Download** with nine premium debrid services and seven free hosts
 - Native and small: the UI runs in the macOS system WebView through [Tauri 2](https://tauri.app),
   not in a 150 MB Electron bundle
 
@@ -111,8 +111,9 @@ the first one that works is used.
 | **transfer.it** | `transfer.it/t/…` | Through MEGA's API: every file is listed with its name and folder, then downloaded with resume and several connections, and decrypted as it arrives. |
 | **MEGA** | `mega.nz/file/…#key`, `mega.nz/folder/…#key`, older `#!…` / `#F!…` links | The same way as transfer.it. A single file goes through your debrid account instead when one handles MEGA, which avoids MEGA's free quota. |
 | **WeTransfer** | `wetransfer.com/downloads/…`, `we.tl/…` | Through its API, with resume. A transfer of several files comes as a ZIP. |
+| **MediaFire** | `mediafire.com/file/…`, `mediafire.com/?…` | Directly from its page, with resume, before any debrid account (which then only serves as a fallback). Folders aren't handled. |
 | **buzzheavier** | `buzzheavier.com/…`, `bzzhr.co/…` | A small window passes the site's browser check and starts the download by itself. The file then goes to the queue, with resume. |
-| **workupload** | `workupload.com/file/…` | A small window passes the site's browser check and starts the download by itself. The window saves the file in your download folder. |
+| **workupload** | `workupload.com/file/…` | A hidden window passes the site's browser check and finds the file, which then goes to the queue. The window only shows up if the check gets stuck. |
 
 The addresses these services hand out expire, so each download asks for a fresh one. Their
 files appear in the queue and are extracted like the others. Other hosts need one of the

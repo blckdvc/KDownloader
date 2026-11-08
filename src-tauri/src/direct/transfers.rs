@@ -1,6 +1,7 @@
 //! File-transfer services whose share links lead to files through a public
 //! API rather than a page: MEGA (and transfer.it, which runs on it) and
-//! WeTransfer. Their file addresses are temporary, so each download asks for a
+//! WeTransfer, plus MediaFire, whose page holds the file's address. Their file
+//! addresses are temporary, so each download asks for a
 //! fresh one; MEGA's files are encrypted, and decrypted as they arrive.
 
 use aes::cipher::{BlockDecrypt, BlockDecryptMut, KeyInit, KeyIvInit, StreamCipher, StreamCipherSeek};
@@ -25,6 +26,8 @@ pub enum Link {
     Transfer { handle: String, node: Option<String> },
     /// A WeTransfer transfer: its id and security hash, or a `we.tl` short link.
     WeTransfer { url: String },
+    /// A MediaFire file page; its folders aren't handled.
+    MediaFire { url: String },
 }
 
 /// Where a file can be fetched right now, and how to decrypt it.
@@ -100,6 +103,11 @@ pub fn parse(url: &str) -> Option<Link> {
             }),
             _ => None,
         };
+    }
+    if host_is(&u, &["mediafire.com"]) {
+        let file = matches!(segments.as_slice(), ["file" | "file_premium" | "download", _key, ..])
+            || (segments.is_empty() && u.query().is_some_and(|q| !q.is_empty() && !q.contains('=')));
+        return file.then(|| Link::MediaFire { url: url.to_string() });
     }
     if host_is(&u, &["we.tl"]) && segments.len() == 1 {
         return Some(Link::WeTransfer { url: url.to_string() });
@@ -317,7 +325,7 @@ pub async fn list(http: &Client, url: &str) -> Result<Vec<Entry>, String> {
             }
             Ok(entries)
         }
-        Link::WeTransfer { .. } => Err("Not a MEGA link".into()),
+        Link::WeTransfer { .. } | Link::MediaFire { .. } => Err("Not a MEGA link".into()),
     }
 }
 
@@ -399,12 +407,52 @@ async fn resolve_wetransfer(http: &Client, url: &str) -> Result<Resolved, String
     }
 }
 
+// --- MediaFire ----------------------------------------------------------------
+
+/// The file address on a MediaFire page: its Download button, written out or,
+/// on some pages, base64-encoded in `data-scrambled-url`.
+fn mediafire_link(page: &str) -> Option<String> {
+    let at = page.find("id=\"downloadButton\"")?;
+    let tag = &page[page[..at].rfind('<')?..];
+    let tag = &tag[..tag.find('>')?];
+    let attr = |name: &str| {
+        let start = tag.find(&format!("{name}=\""))? + name.len() + 2;
+        Some(tag[start..start + tag[start..].find('"')?].to_string())
+    };
+    let link = attr("href").filter(|h| h.starts_with("http")).or_else(|| {
+        let scrambled = attr("data-scrambled-url")?;
+        String::from_utf8(base64::engine::general_purpose::STANDARD.decode(scrambled).ok()?).ok()
+    })?;
+    Some(link.replace("&amp;", "&")).filter(|l| l.starts_with("https://") || l.starts_with("http://"))
+}
+
+async fn resolve_mediafire(http: &Client, url: &str) -> Result<Resolved, String> {
+    let r = http.get(url).send().await.map_err(|e| format!("connection: {e}"))?;
+    // A removed file is sent to an error page.
+    if r.url().path().contains("error") {
+        return Err("This MediaFire file doesn't exist anymore".into());
+    }
+    if r.status().is_server_error() {
+        return Err(format!("MediaFire is temporarily unavailable ({})", r.status()));
+    }
+    let page = r.text().await.map_err(|e| format!("connection: {e}"))?;
+    let link = mediafire_link(&page).ok_or("MediaFire didn't show this file's download")?;
+    Ok(Resolved { url: link, cipher: None })
+}
+
 /// A fresh address for a file of a share link.
 pub async fn resolve(http: &Client, url: &str) -> Result<Resolved, String> {
     match parse(url).ok_or("Not a share link")? {
         Link::WeTransfer { url } => resolve_wetransfer(http, &url).await,
+        Link::MediaFire { url } => resolve_mediafire(http, &url).await,
         link => resolve_mega(http, &link).await,
     }
+}
+
+/// A MediaFire file page. It has no free quota, so it's fetched directly
+/// before any debrid account is asked.
+pub fn is_mediafire(url: &str) -> bool {
+    matches!(parse(url), Some(Link::MediaFire { .. }))
 }
 
 /// Whether a share link stands for several files, listed rather than probed.
@@ -415,6 +463,17 @@ pub fn is_listing(url: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_the_mediafire_button() {
+        let plain = r#"<a class="input popsok" aria-label="Download file"
+            href="https://download1478.mediafire.com/k9/nd17/file.zip"  id="downloadButton" rel="nofollow">"#;
+        assert_eq!(mediafire_link(plain).as_deref(), Some("https://download1478.mediafire.com/k9/nd17/file.zip"));
+        let scrambled = r##"<a class="input" href="#" id="downloadButton"
+            data-scrambled-url="aHR0cHM6Ly9kb3dubG9hZDEubWVkaWFmaXJlLmNvbS94L2YuemlwP2E9MSZhbXA7Yj0y">"##;
+        assert_eq!(mediafire_link(scrambled).as_deref(), Some("https://download1.mediafire.com/x/f.zip?a=1&b=2"));
+        assert_eq!(mediafire_link("<p>gone</p>"), None);
+    }
 
     #[test]
     fn parses_share_links() {
@@ -439,6 +498,12 @@ mod tests {
         assert!(matches!(parse("https://we.tl/t-AbCdEf123"), Some(Link::WeTransfer { .. })));
         assert!(matches!(parse("https://wetransfer.com/downloads/0123abcd/9f8e7d"), Some(Link::WeTransfer { .. })));
         assert!(parse("https://wetransfer.com/").is_none());
+        let mediafire = "https://www.mediafire.com/file/nd17vkv1nfu8jjw/LogicAssistant-1.1.1.zip/file";
+        assert!(matches!(parse(mediafire), Some(Link::MediaFire { .. })));
+        assert!(matches!(parse("https://www.mediafire.com/?nd17vkv1nfu8jjw"), Some(Link::MediaFire { .. })));
+        assert!(matches!(parse("https://www.mediafire.com/download/nd17vkv1nfu8jjw"), Some(Link::MediaFire { .. })));
+        assert!(parse("https://www.mediafire.com/folder/abc123/Stuff").is_none(), "folders aren't handled");
+        assert!(parse("https://www.mediafire.com/").is_none());
         assert!(parse("https://pixeldrain.com/u/abc").is_none());
     }
 
@@ -495,5 +560,18 @@ mod tests {
         }
         let k = format!("owner:{}", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(encrypted));
         assert_eq!(node_key(&k, Some(&folder_key)).unwrap(), node);
+    }
+
+    /// Reaches MediaFire: `cargo test live_mediafire -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn live_mediafire() {
+        let http = Client::builder().user_agent("KDownloader/test").build().unwrap();
+        let url = "https://www.mediafire.com/file/nd17vkv1nfu8jjw/LogicAssistant-1.1.1-Beta-2-Build-1108-Share.zip/file";
+        let resolved = resolve(&http, url).await.unwrap();
+        assert!(resolved.url.contains(".mediafire.com/"), "{}", resolved.url);
+        let r = http.get(&resolved.url).header("Range", "bytes=0-3").send().await.unwrap();
+        assert_eq!(r.status().as_u16(), 206);
+        assert_eq!(&r.bytes().await.unwrap()[..], b"PK\x03\x04");
     }
 }
