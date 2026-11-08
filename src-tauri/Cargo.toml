@@ -36,7 +36,8 @@ ctr = "0.9"
 base64 = "0.22"
 libc = "0.2"
 arboard = { version = "3", default-features = false }
-keyring = { version = "3", features = ["apple-native"] }
+# The macOS Keychain, Windows Credential Manager, and the Secret Service on Linux.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 tracing = "0.1"
 maxminddb = { version = "0.32", features = ["mmap"] }
 flate2 = "1"
@@ -54,6 +55,9 @@ opt-level = 3
 
 [profile.release.package.rc4]
 opt-level = 3
+
+[target.'cfg(windows)'.dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

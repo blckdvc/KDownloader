@@ -1496,7 +1496,14 @@ fn extract_rar(archive: &Path, target: &Path) -> Result<(), unrar::error::UnrarE
     Ok(())
 }
 
+/// Space available to us on the disk holding `dir`. Not checked on Windows.
+#[cfg(not(unix))]
+fn free_space(_dir: &Path) -> Option<u64> {
+    None
+}
+
 /// Space available to us on the disk holding `dir`.
+#[cfg(unix)]
 fn free_space(dir: &Path) -> Option<u64> {
     use std::os::unix::ffi::OsStrExt;
     let path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
@@ -1508,9 +1515,27 @@ fn free_space(dir: &Path) -> Option<u64> {
     Some(stats.f_bavail as u64 * stats.f_frsize)
 }
 
-/// RAR goes through unrar, which follows volumes. For the rest, macOS `tar` is
-/// bsdtar: it reads zip, tar and 7z, and by default refuses paths that climb out of
-/// the target folder.
+/// The bsdtar that unpacks everything but RAR. macOS and Windows ship it as
+/// `tar`; on Linux it comes with libarchive-tools, and GNU tar, the fallback,
+/// only reads tar archives.
+fn bsdtar() -> std::ffi::OsString {
+    #[cfg(target_os = "macos")]
+    return "/usr/bin/tar".into();
+    #[cfg(windows)]
+    {
+        let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+        return Path::new(&root).join("System32").join("tar.exe").into_os_string();
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let found = ["/usr/bin/bsdtar", "/usr/local/bin/bsdtar", "/bin/bsdtar"].into_iter().find(|p| Path::new(p).exists());
+        found.unwrap_or("tar").into()
+    }
+}
+
+/// RAR goes through unrar, which follows volumes. For the rest, bsdtar reads
+/// zip, tar and 7z, and by default refuses paths that climb out of the target
+/// folder.
 pub(crate) async fn extract_archive(archive: &Path, target: &Path) -> Result<(), String> {
     fs::create_dir_all(target).await.map_err(|e| e.to_string())?;
     if links::rar_volume(&archive.to_string_lossy()).is_some() {
@@ -1518,7 +1543,10 @@ pub(crate) async fn extract_archive(archive: &Path, target: &Path) -> Result<(),
         let run = move || extract_rar(&archive, &target).map_err(|e| e.to_string());
         return tokio::task::spawn_blocking(run).await.map_err(|e| e.to_string())?;
     }
-    let output = tokio::process::Command::new("/usr/bin/tar")
+    let mut tar = tokio::process::Command::new(bsdtar());
+    #[cfg(windows)]
+    tar.creation_flags(0x0800_0000); // no console window
+    let output = tar
         .arg("-xf")
         .arg(archive)
         .arg("-C")
@@ -1529,7 +1557,11 @@ pub(crate) async fn extract_archive(archive: &Path, target: &Path) -> Result<(),
     if output.status.success() {
         Ok(())
     } else {
-        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+        let error = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if cfg!(all(unix, not(target_os = "macos"))) && bsdtar() == "tar" {
+            return Err(format!("{error} (install libarchive-tools for ZIP and 7z archives)"));
+        }
+        Err(error)
     }
 }
 

@@ -461,7 +461,7 @@ document.addEventListener("keydown", (e) => {
   if (document.getElementById("view-direct").hidden) return;
   if (!$("rm-modal").hidden) {
     if (e.key === "Escape") { e.preventDefault(); $("rm-modal").hidden = true; rmTarget = null; }
-    else if (e.key === "Enter") { e.preventDefault(); confirmRemove(e.shiftKey || e.metaKey); }
+    else if (e.key === "Enter") { e.preventDefault(); confirmRemove(e.shiftKey || e.metaKey || e.ctrlKey); }
     return;
   }
   const tag = (e.target.tagName || "").toLowerCase();
@@ -504,7 +504,7 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "Delete" || e.key === "Backspace") {
     if (!selectedIds.size) return;
     e.preventDefault();
-    if (e.altKey && e.metaKey) confirmTrash([...selectedIds]);
+    if (e.altKey && (e.metaKey || e.ctrlKey)) confirmTrash([...selectedIds]);
     else openRemoveModal();
   } else if (e.key === " ") {
     e.preventDefault();
