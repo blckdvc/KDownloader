@@ -185,11 +185,7 @@ pub fn dd_disconnect_account(engine: State<Engine>, provider: Provider) -> Resul
 
 #[tauri::command]
 pub fn dd_open_key_page(provider: Provider) -> Result<(), String> {
-    std::process::Command::new("open")
-        .arg(provider.key_page())
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    crate::platform::open(provider.key_page())
 }
 
 /// Opens a web page the app can't handle, such as a captcha-protected one.
@@ -198,22 +194,19 @@ pub fn dd_open_url(url: String) -> Result<(), String> {
     if !url.starts_with("https://") && !url.starts_with("http://") {
         return Err("Only web links can be opened".into());
     }
-    std::process::Command::new("open").arg(&url).spawn().map_err(|e| e.to_string())?;
-    Ok(())
+    crate::platform::open(&url)
 }
 
 const DONATION_PAGE: &str = "https://paypal.me/lbenh";
 
 #[tauri::command]
 pub fn open_donation_page() -> Result<(), String> {
-    std::process::Command::new("open").arg(DONATION_PAGE).spawn().map_err(|e| e.to_string())?;
-    Ok(())
+    crate::platform::open(DONATION_PAGE)
 }
 
 #[tauri::command]
 pub fn dd_reveal(path: PathBuf) -> Result<(), String> {
-    std::process::Command::new("open").arg("-R").arg(path).spawn().map_err(|e| e.to_string())?;
-    Ok(())
+    crate::platform::reveal(&path)
 }
 
 /// Bumped by macOS on every copy, so copying the same link again counts too.
