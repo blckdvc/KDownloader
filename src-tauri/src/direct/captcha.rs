@@ -349,9 +349,29 @@ fn on_browser_download(app: AppHandle, label: String, source: String, url: Strin
 
 /// The page window found the file's own address: the queue downloads it, with
 /// resume and several connections, and the window closes.
-async fn on_file_found(app: AppHandle, label: String, source: String, file: String) {
+async fn on_file_found(app: AppHandle, label: String, source: String, file: Url) {
     tracing::info!("page window found the file of {source}");
-    match app.state::<Engine>().add_file(&file).await {
+    // workupload serves it only with the session that passed its check. The
+    // window's cookies are read whole: asking for one address misses those set
+    // for the parent domain.
+    let host = file.host_str().unwrap_or("").to_string();
+    let cookies = app.get_webview_window(&label).map(|window| window.cookies());
+    if let Some(Err(e)) = &cookies {
+        tracing::warn!("page window cookies unreadable: {e}");
+    }
+    let cookie = cookies
+        .and_then(Result::ok)
+        .map(|cookies| {
+            cookies
+                .iter()
+                .filter(|c| c.domain().is_some_and(|d| in_domain(&host, d.trim_start_matches('.'))))
+                .map(|c| format!("{}={}", c.name(), c.value()))
+                .collect::<Vec<_>>()
+                .join("; ")
+        })
+        .filter(|c| !c.is_empty());
+    tracing::info!("page window session for {host}: {}", if cookie.is_some() { "found" } else { "none" });
+    match app.state::<Engine>().add_file(file.as_str(), cookie).await {
         Ok(()) => {
             let _ = app.emit("page-downloaded", &source);
             if let Some(window) = app.get_webview_window(&label) {
@@ -360,6 +380,7 @@ async fn on_file_found(app: AppHandle, label: String, source: String, file: Stri
         }
         Err(e) => {
             tracing::warn!("file from the page window refused: {e}");
+            show_window(&app, &label);
             let _ = app.emit("dd-error", format!("The page window's file couldn't be queued: {e}"));
         }
     }
@@ -397,7 +418,8 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
     if links::is_buzzheavier(&url) {
         script.push_str(START_BUZZHEAVIER);
     }
-    if page.host_str().is_some_and(|h| h.trim_start_matches("www.") == "workupload.com") {
+    let workupload = page.host_str().is_some_and(|h| h.trim_start_matches("www.") == "workupload.com");
+    if workupload {
         script.push_str(START_WORKUPLOAD);
     }
     if !browser_host {
@@ -413,7 +435,10 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
     let (dl_app, dl_label, dl_source) = (app.clone(), label.clone(), url.clone());
     let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(page))
         .title(if browser_host { "Start the download" } else { "Solve the captcha" })
-        .inner_size(620.0, 520.0);
+        .inner_size(620.0, 520.0)
+        // workupload's check needs no one: its window stays hidden unless it
+        // gets stuck.
+        .visible(!workupload);
     if browser_host {
         // The site checks the browser, then the user starts the download on its
         // page; that download goes to the queue with this window's session.
@@ -423,6 +448,7 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
         builder = builder.user_agent(links::BROWSER_UA).on_download(move |_, event| {
             match event {
                 DownloadEvent::Requested { url, destination } => {
+                    tracing::info!("page window download requested: {} -> {}", url.host_str().unwrap_or(""), destination.display());
                     if !matches!(url.scheme(), "http" | "https") {
                         return false;
                     }
@@ -435,6 +461,7 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
                     true
                 }
                 DownloadEvent::Finished { url, success, .. } => {
+                    tracing::info!("page window download finished: success={success}");
                     // WebKit calls this on the main thread, outside the async runtime
                     // the queue needs: the work runs there instead.
                     let target = saving.lock().unwrap().remove(url.as_str());
@@ -452,8 +479,9 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
         .on_navigation(move |target| {
             // The site's page leads to its file wherever it's served from.
             if browser_host {
-                if links::is_buzzheavier_file(target) {
-                    let job = on_file_found(nav_app.clone(), nav_label.clone(), nav_source.clone(), target.to_string());
+                tracing::debug!("page window navigates to {}{}", target.host_str().unwrap_or(target.scheme()), target.path());
+                if links::is_buzzheavier_file(target) || links::is_workupload_file(target) {
+                    let job = on_file_found(nav_app.clone(), nav_label.clone(), nav_source.clone(), target.clone());
                     tauri::async_runtime::spawn(job);
                     return false;
                 }
@@ -501,7 +529,27 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
         })
         .build()
         .map_err(|e| e.to_string())?;
+    if workupload {
+        let (app, label) = (app.clone(), label.clone());
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(HIDDEN_WINDOW_PATIENCE).await;
+            show_window(&app, &label);
+        });
+    }
     Ok(())
+}
+
+/// How long a hidden page window may work before it's shown to the user.
+const HIDDEN_WINDOW_PATIENCE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Shows a page window that worked hidden, when it needs the user after all.
+fn show_window(app: &AppHandle, label: &str) {
+    if let Some(window) = app.get_webview_window(label) {
+        if !window.is_visible().unwrap_or(true) {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }
 }
 
 #[cfg(test)]
