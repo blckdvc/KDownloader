@@ -35,6 +35,8 @@ Free and open-source 🙂 — if you feel like it, buy me a few tokens:
 - **Archive extraction**, off by default: a finished torrent's ZIP, 7z, RAR (multi-volume too) and
   tar archives are unpacked next to them. Deleting the archive afterwards is a separate option:
   the torrent can't seed the deleted files any more, so it's paused.
+- **Delete archive after extraction, per torrent**: from the right-click menu of a torrent that
+  has archives and hasn't finished. It's extracted, then cleaned up, whatever the setting says.
 
 ### Speed and scheduling
 

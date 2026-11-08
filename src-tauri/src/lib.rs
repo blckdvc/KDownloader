@@ -148,6 +148,10 @@ struct TMeta {
     down_kbps: u32,
     #[serde(default)]
     up_kbps: u32,
+    /// Extract this torrent's archives when it finishes, then delete them,
+    /// whatever the global setting says.
+    #[serde(default)]
+    delete_archive: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +214,15 @@ async fn set_torrent_limits(state: State<'_, Shared>, id: u64, down_kbps: u32, u
         let e = m.entry(hash_hex(&handle)).or_default();
         (e.down_kbps, e.up_kbps) = (down_kbps, up_kbps);
     }
+    state.save_meta();
+    Ok(())
+}
+
+/// Marks one torrent to have its archives extracted, then deleted, when it finishes.
+#[tauri::command]
+fn set_delete_archive(state: State<'_, Shared>, id: u64, on: bool) -> Result<(), String> {
+    let handle = state.session.get((id as usize).into()).ok_or_else(|| "torrent not found".to_string())?;
+    state.meta.lock().map_err(|_| "lock".to_string())?.entry(hash_hex(&handle)).or_default().delete_archive = on;
     state.save_meta();
     Ok(())
 }
@@ -497,6 +510,8 @@ async fn list_torrents(state: State<'_, Shared>) -> Result<Vec<Value>, String> {
                 "tracker_peers": swarm.map(|s| s.1).or(m.tracker_peers),
                 "down_kbps": m.down_kbps,
                 "up_kbps": m.up_kbps,
+                "has_archives": unpack::has_archives(handle),
+                "delete_archive": m.delete_archive,
             }));
         }
         v
@@ -1129,6 +1144,7 @@ pub fn run() {
             set_category,
             set_tags,
             set_torrent_limits,
+            set_delete_archive,
             list_peers,
             list_trackers,
             pause_torrent,

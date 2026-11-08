@@ -325,6 +325,7 @@ $("tbody").addEventListener("contextmenu", (e) => {
     { key: "⇧⌘L", label: `⚡ Speed limits…${t.down_kbps || t.up_kbps ? ` (${limitText(t)})` : ""}`, act: () => openTorrentLimits([id]) },
     { key: "⌘R", label: "📂 Open destination folder", act: () => t.output_folder && invoke("reveal_path", { path: t.output_folder }).catch(showError) },
     { key: "⌘I", label: "ⓘ Details / category…", act: () => { selectTorrent(id); showDetails(true); } },
+    ...archiveEntry(t),
     { sep: true },
     { label: "📋 Copy info hash", act: () => { try { navigator.clipboard.writeText(t.info_hash || ""); } catch (_) {} } },
     { sep: true },
@@ -333,6 +334,21 @@ $("tbody").addEventListener("contextmenu", (e) => {
   ];
   showContextMenu(e, items);
 });
+
+// Only a torrent with archives still to download gets the entry, and only
+// while Settings doesn't already delete every torrent's archives.
+function archiveEntry(t) {
+  const s = settingsCache || {};
+  if (!t.has_archives || t.stats?.finished || (s.torrent_extract && s.torrent_delete_archive)) return [];
+  const on = !!t.delete_archive;
+  return [{
+    label: on ? "✓ Delete archive after extraction" : "🗜 Delete archive after extraction",
+    act: () => invoke("set_delete_archive", { id: t.id, on: !on }).then(() => {
+      if (!on) showNotice("When it finishes, this torrent's archives will be extracted, then deleted: it will stop seeding them.");
+      refresh();
+    }).catch(showError),
+  }];
+}
 
 // ---- per-torrent speed limits -------------------------------------------
 const limitText = (t) => [t.down_kbps && `↓ ${t.down_kbps}`, t.up_kbps && `↑ ${t.up_kbps}`].filter(Boolean).join(" ") + " KiB/s";
