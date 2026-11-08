@@ -12,6 +12,7 @@ use reqwest::{Client, Response, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::io::SeekFrom;
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -275,6 +276,17 @@ struct Inner {
     hold_until: Mutex<Option<Instant>>,
     /// Keeps saves in order, so an older state can't replace a newer one.
     saving: Mutex<()>,
+    /// The server each transfer last connected to, for the Bandwidth map.
+    servers: Mutex<HashMap<u64, IpAddr>>,
+}
+
+/// A server a running transfer is fetching from, and how fast.
+#[derive(Clone, Serialize)]
+pub struct ServerActivity {
+    #[serde(skip)]
+    pub ip: IpAddr,
+    pub name: String,
+    pub speed: u64,
 }
 
 /// Held while a file name is chosen and taken, so two files never pick the same.
@@ -320,6 +332,7 @@ impl Engine {
             wake: Notify::new(),
             hold_until: Mutex::new(None),
             saving: Mutex::new(()),
+            servers: Mutex::default(),
         }))
     }
 
@@ -357,6 +370,29 @@ impl Engine {
         self.0.state.lock().unwrap().settings = settings;
         self.save();
         self.0.wake.notify_one();
+    }
+
+    /// The servers running transfers fetch from: their debrid service, or
+    /// the host of their link.
+    pub fn active_servers(&self) -> Vec<ServerActivity> {
+        let st = self.0.state.lock().unwrap();
+        let mut servers = self.0.servers.lock().unwrap();
+        let active: HashSet<u64> = st.items.iter().filter(|i| i.status == Status::Active).map(|i| i.id).collect();
+        servers.retain(|id, _| active.contains(id));
+        st.items
+            .iter()
+            .filter_map(|item| {
+                let ip = *servers.get(&item.id)?;
+                let name = match item.provider {
+                    Some(p) => p.name().to_string(),
+                    None => reqwest::Url::parse(&item.url)
+                        .ok()
+                        .and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_string()))
+                        .unwrap_or_default(),
+                };
+                Some(ServerActivity { ip, name, speed: item.speed })
+            })
+            .collect()
     }
 
     pub fn list(&self) -> Vec<Item> {
@@ -1067,6 +1103,9 @@ impl Engine {
             progressed: false,
         })?;
         check_status(&resp, job, pos)?;
+        if let Some(addr) = resp.remote_addr() {
+            self.0.servers.lock().unwrap().insert(job.id, addr.ip());
+        }
 
         let mut file = OpenOptions::new()
             .write(true)

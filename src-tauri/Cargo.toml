@@ -38,6 +38,8 @@ libc = "0.2"
 arboard = { version = "3", default-features = false }
 keyring = { version = "3", features = ["apple-native"] }
 tracing = "0.1"
+maxminddb = { version = "0.32", features = ["mmap"] }
+flate2 = "1"
 
 [profile.release]
 opt-level = "s"
