@@ -394,3 +394,7 @@ code { background: var(--track); padding: 1px 5px; border-radius: 4px; font-size
 /* Windows and Linux: the system draws the title bar, and the default-app
    choice belongs to the installer. */
 .not-mac .titlebar, .not-mac .mac-only { display: none; }
+
+/* Map: live speeds, or what was exchanged since launch */
+.bw-seg.map-mode { margin-right: 0; }
+.map-arc.past { opacity: .4; animation: none; stroke-dasharray: none; }

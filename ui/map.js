@@ -5,6 +5,7 @@ const $ = (id) => document.getElementById(id);
 const NS = "http://www.w3.org/2000/svg";
 const svg = $("map-svg"), tip = $("map-tip");
 const VIEW_KEY = "kdownloader-bandwidth-view";
+const MODE_KEY = "kdownloader-map-mode";
 const POLL_MS = 2000;
 const CLUSTER_PX = 14;
 const IDLE = 1024; // below 1 KB/s a place is drawn without an arc
@@ -13,6 +14,7 @@ let world = null, lands = null;
 let snap = null;
 let zoom = 1, pan = [0, 0];
 const shown = { down: true, up: true, dd: true };
+let mode = "live"; // or "history": everything since the app started
 const countryOf = new Map(); // "lon,lat" → atlas feature
 
 const rate = (n) => `${bytes(n)}/s`;
@@ -31,6 +33,7 @@ function setView(view) {
   const map = view === "map";
   $("map-view").hidden = !map;
   $("map-chips").hidden = !map;
+  $("map-mode").hidden = !map;
   $("bw-chart-view").hidden = map;
   document.querySelector("#view-bandwidth .bw-ranges").hidden = map;
   document.querySelectorAll("[data-bw-view]").forEach((b) => b.classList.toggle("active", b.dataset.bwView === view));
@@ -39,6 +42,34 @@ function setView(view) {
   else window.dispatchEvent(new Event("resize"));
 }
 document.querySelectorAll("[data-bw-view]").forEach((b) => b.addEventListener("click", () => setView(b.dataset.bwView)));
+
+// ---- live or since launch ----------------------------------------------------
+// Both read the same way: `down`/`up` and a server's `amount` are speeds live,
+// and bytes since launch.
+function data() {
+  if (mode === "history" && snap.history) {
+    const h = snap.history;
+    return {
+      spots: h.spots, unplaced: h.unplaced, fmt: bytes, idle: 1,
+      servers: h.servers.map((s) => ({ ...s, amount: s.bytes })),
+      radius: (n) => Math.min(18, 3.5 + Math.max(0, Math.log10(n / 1024)) * 2.2),
+      none: "No torrent peers since launch.", noServer: "Nothing downloaded since launch.",
+    };
+  }
+  return {
+    spots: snap.spots, unplaced: snap.unplaced, fmt: rate, idle: IDLE,
+    servers: snap.servers.map((s) => ({ ...s, amount: s.speed })),
+    radius: (n) => Math.min(18, 3.5 + Math.sqrt(n / 1024) / 6),
+    none: "No torrent peers connected.", noServer: "No download running.",
+  };
+}
+function setMode(next) {
+  mode = next;
+  document.querySelectorAll("[data-map-mode]").forEach((b) => b.classList.toggle("active", b.dataset.mapMode === mode));
+  try { localStorage.setItem(MODE_KEY, mode); } catch (_) {}
+  if (snap) { draw(); table(); }
+}
+document.querySelectorAll("[data-map-mode]").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mapMode)));
 
 // ---- data -------------------------------------------------------------------
 async function loadWorld() {
@@ -170,7 +201,8 @@ function draw() {
   const path = d3.geoPath(proj);
   el("path", { class: "map-grat", d: path(d3.geoGraticule10()) }, svg);
 
-  const busy = new Set(snap.spots.map((s) => landAt(s.lon, s.lat)).filter(Boolean));
+  const d = data();
+  const busy = new Set(d.spots.map((s) => landAt(s.lon, s.lat)).filter(Boolean));
   const landLayer = el("g", {}, svg);
   for (const f of lands.features) {
     const p = el("path", { class: "map-land" + (busy.has(f) ? " active" : ""), d: path(f) }, landLayer);
@@ -181,36 +213,36 @@ function draw() {
   const arc = (from, cls, color) => {
     if (!home) return;
     const line = { type: "LineString", coordinates: d3.range(0, 1.0001, 1 / 48).map(d3.geoInterpolate(from, home)) };
-    el("path", { class: "map-arc " + cls, d: path(line), stroke: color }, arcs);
+    el("path", { class: "map-arc " + cls + (mode === "history" ? " past" : ""), d: path(line), stroke: color }, arcs);
   };
 
   let totalDown = 0, totalUp = 0, totalDd = 0;
-  for (const c of clusters(snap.spots, proj)) {
+  for (const c of clusters(d.spots, proj)) {
     totalDown += c.down; totalUp += c.up;
-    const down = shown.down && c.down >= IDLE, up = shown.up && c.up >= IDLE;
-    const idle = c.down < IDLE && c.up < IDLE;
+    const down = shown.down && c.down >= d.idle, up = shown.up && c.up >= d.idle;
+    const idle = c.down < d.idle && c.up < d.idle;
     if (!idle && !down && !up) continue;
     if (down) arc([c.lon, c.lat], "", "var(--bw-torrent-down)");
     if (up) arc([c.lon, c.lat], "up", "var(--bw-torrent-up)");
     const color = c.down >= c.up ? "var(--bw-torrent-down)" : "var(--bw-torrent-up)";
-    const r = idle ? 3 : Math.min(18, 3.5 + Math.sqrt((c.down + c.up) / 1024) / 6);
+    const r = idle ? 3 : d.radius(c.down + c.up);
     const dot = el("circle", { class: "map-node" + (idle ? " idle" : ""), cx: c.xy[0], cy: c.xy[1], r, fill: idle ? "" : color }, nodes);
     dot.__countries = new Set(c.spots.map((s) => s.country));
     const names = c.spots.map(placeName);
     hover(dot, () => `<h4>${esc(names.slice(0, 3).join(" · "))}${names.length > 3 ? ` +${names.length - 3}` : ""}</h4>
       <div class="row">Peers <b>${c.peers}</b></div>
-      <div class="row">Download <b>${c.down >= IDLE ? rate(c.down) : "—"}</b></div>
-      <div class="row">Upload <b>${c.up >= IDLE ? rate(c.up) : "—"}</b></div>`);
+      <div class="row">Download <b>${c.down >= d.idle ? d.fmt(c.down) : "—"}</b></div>
+      <div class="row">Upload <b>${c.up >= d.idle ? d.fmt(c.up) : "—"}</b></div>`);
   }
-  for (const s of snap.servers) {
-    totalDd += s.speed;
+  for (const s of d.servers) {
+    totalDd += s.amount;
     if (!shown.dd) continue;
     arc([s.lon, s.lat], "dd", "var(--bw-direct)");
     const xy = proj([s.lon, s.lat]);
     if (!xy) continue;
-    const r = Math.min(14, 4 + Math.sqrt(s.speed / 1024) / 18);
+    const r = Math.min(14, d.radius(s.amount) * 0.8 + 0.5);
     const sq = el("rect", { class: "map-node", x: xy[0] - r, y: xy[1] - r, width: 2 * r, height: 2 * r, rx: 3, fill: "var(--bw-direct)" }, nodes);
-    hover(sq, () => `<h4>${esc(s.name)}</h4><div class="row">Server <b>${esc(placeName(s))}</b></div><div class="row">Download <b>${rate(s.speed)}</b></div>`);
+    hover(sq, () => `<h4>${esc(s.name)}</h4><div class="row">Server <b>${esc(placeName(s))}</b></div><div class="row">Download <b>${d.fmt(s.amount)}</b></div>`);
   }
   if (home) {
     const [hx, hy] = proj(home);
@@ -218,9 +250,9 @@ function draw() {
     el("circle", { class: "map-home", cx: hx, cy: hy, r: 6 }, nodes);
     el("text", { class: "map-label home", x: hx - 12, y: hy - 14, "text-anchor": "end" }, labels).textContent = `You · ${snap.home.city || ""}`;
   }
-  $("map-t-down").textContent = rate(totalDown);
-  $("map-t-up").textContent = rate(totalUp);
-  $("map-t-dd").textContent = rate(totalDd);
+  $("map-t-down").textContent = d.fmt(totalDown);
+  $("map-t-up").textContent = d.fmt(totalUp);
+  $("map-t-dd").textContent = d.fmt(totalDd);
 }
 
 function hover(node, html) {
@@ -237,8 +269,9 @@ function hover(node, html) {
 
 // ---- side panel ---------------------------------------------------------------
 function table() {
+  const d = data();
   const by = new Map();
-  for (const s of snap.spots) {
+  for (const s of d.spots) {
     const name = s.country || "Unknown";
     const c = by.get(name) || { name, peers: 0, down: 0, up: 0, lands: new Set() };
     c.peers += s.peers; c.down += s.down; c.up += s.up;
@@ -248,15 +281,18 @@ function table() {
   }
   const rows = [...by.values()].sort((a, b) => (b.down + b.up) - (a.down + a.up) || b.peers - a.peers);
   const max = Math.max(1, ...rows.map((r) => r.down + r.up));
-  const peers = rows.reduce((a, r) => a + r.peers, 0) + (snap.unplaced || 0);
-  $("map-count").textContent = peers ? `${peers} peers · ${rows.length} ${rows.length === 1 ? "country" : "countries"}` : "";
+  const peers = rows.reduce((a, r) => a + r.peers, 0) + (d.unplaced || 0);
+  const since = mode === "history" && snap.history
+    ? ` · since ${new Date(snap.history.since * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "";
+  $("map-count").textContent = peers ? `${peers} peers · ${rows.length} ${rows.length === 1 ? "country" : "countries"}${since}` : "";
   $("map-empty").hidden = rows.length > 0;
+  $("map-empty").textContent = d.none;
   const body = $("map-countries");
   body.innerHTML = rows.map((r, i) => `<tr data-i="${i}">
     <td><div class="name">${esc(r.name)}<div class="map-bar" style="width:${Math.max(6, ((r.down + r.up) / max) * 100)}%">
-      ${r.down >= IDLE ? `<span style="flex:${r.down};background:var(--bw-torrent-down)"></span>` : ""}
-      ${r.up >= IDLE ? `<span style="flex:${r.up};background:var(--bw-torrent-up)"></span>` : ""}</div></div></td>
-    <td class="num">${r.peers}</td><td class="num">${r.down >= IDLE ? rate(r.down) : "—"}</td><td class="num">${r.up >= IDLE ? rate(r.up) : "—"}</td></tr>`).join("");
+      ${r.down >= d.idle ? `<span style="flex:${r.down};background:var(--bw-torrent-down)"></span>` : ""}
+      ${r.up >= d.idle ? `<span style="flex:${r.up};background:var(--bw-torrent-up)"></span>` : ""}</div></div></td>
+    <td class="num">${r.peers}</td><td class="num">${r.down >= d.idle ? d.fmt(r.down) : "—"}</td><td class="num">${r.up >= d.idle ? d.fmt(r.up) : "—"}</td></tr>`).join("");
   for (const tr of body.rows) {
     const row = rows[tr.dataset.i];
     tr.addEventListener("mouseenter", () => {
@@ -265,9 +301,9 @@ function table() {
     });
     tr.addEventListener("mouseleave", () => svg.querySelectorAll(".hl").forEach((n) => n.classList.remove("hl")));
   }
-  $("map-server-list").innerHTML = snap.servers.length
-    ? snap.servers.map((s) => `<div class="map-srv"><i></i>${esc(s.name)} <span class="where">${esc(placeName(s))}</span><span class="spd">${rate(s.speed)}</span></div>`).join("")
-    : `<div class="map-srv none">No download running.</div>`;
+  $("map-server-list").innerHTML = d.servers.length
+    ? d.servers.map((s) => `<div class="map-srv"><i></i>${esc(s.name)} <span class="where">${esc(placeName(s))}</span><span class="spd">${d.fmt(s.amount)}</span></div>`).join("")
+    : `<div class="map-srv none">${d.noServer}</div>`;
 }
 
 $("map-chips").addEventListener("click", (e) => {
@@ -284,5 +320,6 @@ window.addEventListener("kdownloader-tab", refresh);
 setInterval(refresh, POLL_MS);
 let saved = "chart";
 try { saved = localStorage.getItem(VIEW_KEY) || "chart"; } catch (_) {}
+try { if (localStorage.getItem(MODE_KEY) === "history") setMode("history"); } catch (_) {}
 setView(saved);
 })();
