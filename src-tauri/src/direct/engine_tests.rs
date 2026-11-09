@@ -290,17 +290,32 @@ async fn html_page_expands_to_its_files() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn speed_limit_is_respected() {
-    let body = test_bytes(1024 * 1024);
+    // 2 MiB at 1 MiB/s: about 2 s. The last bytes booked go through without
+    // waiting, and the test server sends up to 256 KiB at once, so the bound
+    // leaves room for that, while an unlimited download takes milliseconds.
+    let body = test_bytes(2 * 1024 * 1024);
     let server = serve(body.clone(), Behavior::default()).await;
     let fx = fixture();
     let mut settings = fx.engine.settings();
-    settings.speed_limit_kib = 512;
+    settings.speed_limit_kib = 1024;
     fx.engine.set_settings(settings);
     let started = std::time::Instant::now();
     add(&fx.engine, &format!("{}/a.bin", server.base)).await;
     let item = wait_done(&fx.engine).await;
-    assert!(started.elapsed() >= Duration::from_millis(1500), "{:?}", started.elapsed());
+    assert!(started.elapsed() >= Duration::from_millis(1200), "{:?}", started.elapsed());
     assert_eq!(std::fs::read(item.output.unwrap()).unwrap(), body);
+}
+
+#[tokio::test(start_paused = true)]
+async fn limiter_spaces_bytes_at_the_set_rate() {
+    let limiter = Limiter::default();
+    limiter.set(256 * 1024);
+    let started = Instant::now();
+    for _ in 0..8 {
+        limiter.take(64 * 1024).await;
+    }
+    // Each take waits for the ones booked before it: 7 × 64 KiB at 256 KiB/s.
+    assert_eq!(started.elapsed(), Duration::from_millis(1750));
 }
 
 #[cfg(unix)]
