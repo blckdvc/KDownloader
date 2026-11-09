@@ -9,6 +9,7 @@ mod migrate;
 mod platform;
 mod rss;
 mod unpack;
+mod update;
 mod upnp;
 mod watch;
 
@@ -933,6 +934,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         // Remembers the main window only: captcha popups keep their own size.
         .plugin(tauri_plugin_window_state::Builder::default().with_filter(|label| label == "main").build())
         .setup(|app| {
@@ -1110,6 +1112,8 @@ pub fn run() {
             app.manage(Arc::new(geo::Geo::new(cfg_dir.clone())));
             app.manage(map::MapHistory::default());
             tauri::async_runtime::spawn(map::record(app.handle().clone()));
+            app.manage(update::Updates::default());
+            tauri::async_runtime::spawn(update::watch(app.handle().clone()));
 
             // Background workers.
             tauri::async_runtime::spawn(log_trim_loop(log_file));
@@ -1149,6 +1153,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             map::map_snapshot,
+            update::update_pending,
+            update::update_check,
+            update::update_install,
             map::map_download_db,
             add_torrent,
             add_torrent_bytes,
