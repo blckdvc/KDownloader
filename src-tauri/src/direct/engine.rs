@@ -278,6 +278,8 @@ struct Inner {
     saving: Mutex<()>,
     /// The server each transfer last connected to, for the Bandwidth map.
     servers: Mutex<HashMap<u64, IpAddr>>,
+    /// Bytes received from each server since launch, for the map.
+    received: Mutex<HashMap<IpAddr, u64>>,
 }
 
 /// A server a running transfer is fetching from, and how fast.
@@ -333,6 +335,7 @@ impl Engine {
             hold_until: Mutex::new(None),
             saving: Mutex::new(()),
             servers: Mutex::default(),
+            received: Mutex::default(),
         }))
     }
 
@@ -393,6 +396,11 @@ impl Engine {
                 Some(ServerActivity { ip, name, speed: item.speed })
             })
             .collect()
+    }
+
+    /// Bytes received from each server since launch.
+    pub fn received_by_server(&self) -> Vec<(IpAddr, u64)> {
+        self.0.received.lock().unwrap().iter().map(|(ip, n)| (*ip, *n)).collect()
     }
 
     pub fn list(&self) -> Vec<Item> {
@@ -1103,8 +1111,9 @@ impl Engine {
             progressed: false,
         })?;
         check_status(&resp, job, pos)?;
-        if let Some(addr) = resp.remote_addr() {
-            self.0.servers.lock().unwrap().insert(job.id, addr.ip());
+        let server = resp.remote_addr().map(|addr| addr.ip());
+        if let Some(ip) = server {
+            self.0.servers.lock().unwrap().insert(job.id, ip);
         }
 
         let mut file = OpenOptions::new()
@@ -1145,6 +1154,9 @@ impl Engine {
                         None => buf.extend_from_slice(&chunk),
                     }
                     received += n;
+                    if let Some(ip) = server {
+                        *self.0.received.lock().unwrap().entry(ip).or_default() += n;
+                    }
                     if let Some(left) = remaining.as_mut() {
                         *left -= n;
                     }
