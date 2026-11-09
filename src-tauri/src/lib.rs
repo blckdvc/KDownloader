@@ -1108,7 +1108,8 @@ pub fn run() {
             shared.apply_torrent_limits();
             app.manage(shared.clone());
             app.manage(Arc::new(geo::Geo::new(cfg_dir.clone())));
-            app.manage(map::PeerRates::default());
+            app.manage(map::MapHistory::default());
+            tauri::async_runtime::spawn(map::record(app.handle().clone()));
 
             // Background workers.
             tauri::async_runtime::spawn(log_trim_loop(log_file));

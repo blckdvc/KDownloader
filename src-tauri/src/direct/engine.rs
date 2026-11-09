@@ -278,6 +278,8 @@ struct Inner {
     saving: Mutex<()>,
     /// The server each transfer last connected to, for the Bandwidth map.
     servers: Mutex<HashMap<u64, IpAddr>>,
+    /// Bytes received from each server since launch, for the map.
+    received: Mutex<HashMap<IpAddr, u64>>,
 }
 
 /// A server a running transfer is fetching from, and how fast.
@@ -333,6 +335,7 @@ impl Engine {
             hold_until: Mutex::new(None),
             saving: Mutex::new(()),
             servers: Mutex::default(),
+            received: Mutex::default(),
         }))
     }
 
@@ -393,6 +396,11 @@ impl Engine {
                 Some(ServerActivity { ip, name, speed: item.speed })
             })
             .collect()
+    }
+
+    /// Bytes received from each server since launch.
+    pub fn received_by_server(&self) -> Vec<(IpAddr, u64)> {
+        self.0.received.lock().unwrap().iter().map(|(ip, n)| (*ip, *n)).collect()
     }
 
     pub fn list(&self) -> Vec<Item> {
@@ -1103,8 +1111,9 @@ impl Engine {
             progressed: false,
         })?;
         check_status(&resp, job, pos)?;
-        if let Some(addr) = resp.remote_addr() {
-            self.0.servers.lock().unwrap().insert(job.id, addr.ip());
+        let server = resp.remote_addr().map(|addr| addr.ip());
+        if let Some(ip) = server {
+            self.0.servers.lock().unwrap().insert(job.id, ip);
         }
 
         let mut file = OpenOptions::new()
@@ -1145,6 +1154,9 @@ impl Engine {
                         None => buf.extend_from_slice(&chunk),
                     }
                     received += n;
+                    if let Some(ip) = server {
+                        *self.0.received.lock().unwrap().entry(ip).or_default() += n;
+                    }
                     if let Some(left) = remaining.as_mut() {
                         *left -= n;
                     }
@@ -1405,6 +1417,17 @@ fn check_status(resp: &Response, job: &Job, pos: u64) -> Result<(), Attempt> {
     // Bytes from anywhere but where we asked would be written at the wrong place.
     let start = header(resp.headers(), CONTENT_RANGE)
         .and_then(|v| v.strip_prefix("bytes ")?.split('-').next()?.trim().parse::<u64>().ok());
+    // A page where the file's bytes should be: the host stopped serving it,
+    // which starting over wouldn't fix.
+    let page = header(resp.headers(), CONTENT_TYPE).is_some_and(|t| t.starts_with("text/html"));
+    if status.is_success() && page {
+        let drive = resp.url().host_str().is_some_and(|h| h.ends_with("drive.usercontent.google.com"));
+        return Err(Attempt::Stop(if drive {
+            DlError::Outage("Google Drive's download quota for this file is used up for now".into())
+        } else {
+            DlError::Fatal("The server sent a web page instead of the file".into())
+        }));
+    }
     match status {
         StatusCode::PARTIAL_CONTENT if resumable && start.is_some_and(|s| s != pos) => {
             Err(Attempt::Stop(DlError::Restart))

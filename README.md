@@ -159,6 +159,10 @@ and the servers Direct Download fetches from, with their speeds and a table by c
 
 - Zoom with the wheel, a double-click or the +/− buttons, and drag to move around.
 - Places close together are grouped, and hovering one shows its peers and speeds.
+- **Live / Since launch**: *Live* shows current speeds; *Since launch* shows every place you've
+  exchanged data with since KDownloader started, with the amount downloaded and uploaded, and
+  how much each Direct Download server sent. Traffic is recorded even while the map is closed,
+  and before the location database is downloaded.
 - Peers are placed with DB-IP's free city database (CC BY 4.0), which the map offers to download
   the first time (60 MB). It stays on your Mac: no address is sent anywhere to be located.
 - Your own position comes from the Mac's time zone, so the map knows your city, not your address.
