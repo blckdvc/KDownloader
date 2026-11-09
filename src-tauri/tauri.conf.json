@@ -65,7 +65,15 @@
           "y": 210
         }
       }
-    }
+    },
+    "createUpdaterArtifacts": true
   },
-  "plugins": {}
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI1MzhCN0ZCMkZCOTk4QkYKUldTL21Ma3YrN2M0SmVHUWErcFB2NHlJckJOR2tqeEJ6QW9aMG9Tbno4dnNLcjMzVnBCT2NYQ2oK",
+      "endpoints": [
+        "https://github.com/blckdvc/KDownloader/releases/latest/download/latest.json"
+      ]
+    }
+  }
 }

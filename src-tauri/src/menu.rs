@@ -30,6 +30,7 @@ fn submenu<R: Runtime>(
 pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let app_menu = SubmenuBuilder::new(app, "KDownloader")
         .item(&item(app, "about", "About KDownloader", None)?)
+        .item(&item(app, "check-updates", "Check for Updates…", None)?)
         .separator()
         .item(&item(app, "settings", "Settings…", Some("CmdOrCtrl+Comma"))?)
         .separator()
