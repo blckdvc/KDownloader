@@ -493,6 +493,19 @@
 
     <div id="ctxmenu" class="ctxmenu" hidden></div>
 
+    <aside class="update-card" id="update-card" role="status" aria-live="polite" hidden>
+      <div class="update-head">
+        <strong id="update-title">A new version is available</strong>
+        <button type="button" class="update-x" id="update-close" aria-label="Later">×</button>
+      </div>
+      <p class="update-sub" id="update-sub"></p>
+      <details class="update-notes" id="update-notes-wrap"><summary>What's new</summary><div id="update-notes"></div></details>
+      <div class="update-bar" id="update-bar" hidden><div id="update-fill"></div></div>
+      <div class="update-actions">
+        <button type="button" id="update-later">Later</button>
+        <button type="button" class="primary" id="update-go">Install and restart</button>
+      </div>
+    </aside>
     <script src="table.js"></script>
     <script src="main.js"></script>
     <script src="direct.js"></script>
@@ -501,5 +514,6 @@
     <script src="vendor/d3-geo.min.js"></script>
     <script src="vendor/topojson-client.min.js"></script>
     <script src="map.js"></script>
+    <script src="update.js"></script>
   </body>
 </html>
