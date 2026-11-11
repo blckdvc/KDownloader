@@ -229,3 +229,13 @@ onMenu("any", {
   shortcuts: showShortcuts,
   options: () => showOptions(document.getElementById("opts").hidden),
 });
+
+// The menu catches ⌘= ⌘- ⌘0 (Ctrl elsewhere); these are the other ways
+// people zoom: ⌘+ typed with Shift, and the keypad's + and -.
+document.addEventListener("keydown", (e) => {
+  if (!(IS_MAC ? e.metaKey : e.ctrlKey) || e.altKey) return;
+  const step = e.key === "+" || e.code === "NumpadAdd" ? "in" : e.code === "NumpadSubtract" ? "out" : null;
+  if (!step) return;
+  e.preventDefault();
+  window.__TAURI__.core.invoke("ui_zoom", { step });
+});

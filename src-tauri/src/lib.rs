@@ -12,6 +12,7 @@ mod unpack;
 mod update;
 mod upnp;
 mod watch;
+mod zoom;
 
 use std::collections::{HashMap, HashSet};
 use std::net::Ipv6Addr;
@@ -920,6 +921,9 @@ pub fn run() {
     tauri::Builder::default()
         .menu(menu::build)
         .on_menu_event(|app, event| {
+            if zoom::handle_menu(app, event.id().as_ref()) {
+                return;
+            }
             let _ = tauri::Emitter::emit(app, "menu", event.id().as_ref());
         })
         // Both copies of the app share one session and port: focus the running one.
@@ -1111,6 +1115,12 @@ pub fn run() {
             app.manage(shared.clone());
             app.manage(Arc::new(geo::Geo::new(cfg_dir.clone())));
             app.manage(map::MapHistory::default());
+            let zoom = zoom::Zoom::load(&cfg_dir);
+            let level = zoom.level();
+            app.manage(zoom);
+            if level != 1.0 {
+                zoom::set(app.handle(), level);
+            }
             tauri::async_runtime::spawn(map::record(app.handle().clone()));
             app.manage(update::Updates::default());
             tauri::async_runtime::spawn(update::watch(app.handle().clone()));
@@ -1153,6 +1163,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             map::map_snapshot,
+            zoom::ui_zoom,
             update::update_pending,
             update::update_check,
             update::update_install,

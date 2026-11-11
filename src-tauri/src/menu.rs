@@ -82,6 +82,10 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             None,
             Some(("details", "Show or Hide Details", Some("CmdOrCtrl+I"))),
             Some(("options", "Show or Hide Add Options", Some("Alt+CmdOrCtrl+O"))),
+            None,
+            Some(("zoom-reset", "Actual Size", Some("CmdOrCtrl+0"))),
+            Some(("zoom-in", "Zoom In", Some("CmdOrCtrl+Equal"))),
+            Some(("zoom-out", "Zoom Out", Some("CmdOrCtrl+Minus"))),
         ],
     )?;
     let window = SubmenuBuilder::new(app, "Window").minimize().maximize().separator().fullscreen().build()?;
