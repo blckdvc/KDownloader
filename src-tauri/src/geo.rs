@@ -22,6 +22,8 @@ pub struct Place {
     pub lon: f64,
     pub city: Option<String>,
     pub country: Option<String>,
+    /// The country's two-letter ISO code, which the window turns into a flag.
+    pub code: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -50,6 +52,7 @@ struct Record {
 #[derive(Deserialize)]
 struct Named {
     names: Option<HashMap<String, String>>,
+    iso_code: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -106,6 +109,7 @@ impl Geo {
                 lat: loc.latitude?,
                 lon: loc.longitude?,
                 city: r.city.and_then(|c| c.english()),
+                code: r.country.as_ref().and_then(|c| c.iso_code.clone()),
                 country: r.country.and_then(|c| c.english()),
             })
         });
@@ -224,7 +228,7 @@ pub fn home() -> Option<Place> {
     let line = table.lines().find(|l| l.split('\t').nth(2) == Some(zone.as_str()))?;
     let (lat, lon) = parse_coordinates(line.split('\t').nth(1)?)?;
     let city = zone.rsplit('/').next()?.replace('_', " ");
-    Some(Place { lat, lon, city: Some(city), country: None })
+    Some(Place { lat, lon, city: Some(city), country: None, code: None })
 }
 
 /// zone.tab's ±DDMM±DDDMM or ±DDMMSS±DDDMMSS.
