@@ -1,3 +1,9 @@
+// A country's flag from its two-letter code, as the emoji made of two
+// regional-indicator letters; nothing for an unknown country.
+window.flagOf = (code) => /^[A-Za-z]{2}$/.test(code || "")
+  ? String.fromCodePoint(...[...code.toUpperCase()].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65)) : "";
+window.flagHtml = (code) => { const f = window.flagOf(code); return f ? `<span class="flag">${f}</span>` : ""; };
+
 // macOS draws the app's own title bar over the window and labels shortcuts
 // with ⌘; Windows and Linux have the system's title bar and Ctrl.
 const IS_MAC = /Mac/.test(navigator.userAgent);

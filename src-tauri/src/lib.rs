@@ -689,7 +689,7 @@ fn torrent_paths(handle: &librqbit::ManagedTorrent) -> (Vec<PathBuf>, Vec<PathBu
 
 /// Live per-peer list for the selected torrent (Peers tab).
 #[tauri::command]
-fn list_peers(state: State<'_, Shared>, id: u64) -> Result<Vec<Value>, String> {
+fn list_peers(state: State<'_, Shared>, geo: State<'_, Arc<geo::Geo>>, id: u64) -> Result<Vec<Value>, String> {
     let h = state
         .session
         .get((id as usize).into())
@@ -703,7 +703,10 @@ fn list_peers(state: State<'_, Shared>, id: u64) -> Result<Vec<Value>, String> {
         .peers
         .into_iter()
         .map(|(addr, p)| {
+            let place = addr.parse::<std::net::SocketAddr>().ok().and_then(|a| geo.locate(a.ip()));
             json!({
+                "code": place.as_ref().and_then(|p| p.code.clone()),
+                "place": place.map(|p| [p.city, p.country].into_iter().flatten().collect::<Vec<_>>().join(", ")),
                 "addr": addr,
                 "state": p.state,
                 "kind": p.conn_kind.map(|k| format!("{k:?}")),

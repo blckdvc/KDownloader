@@ -412,3 +412,6 @@ code { background: var(--track); padding: 1px 5px; border-radius: 4px; font-size
 .update-bar { height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
 .update-bar div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
 .update-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Country flags, beside a place or an address. */
+.flag { display: inline-block; margin-right: 6px; font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; }
