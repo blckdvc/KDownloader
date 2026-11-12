@@ -546,7 +546,7 @@ async function fetchPeers() {
     if (selectedId !== id || detailTab !== "peers") return;
     $("detail-body").innerHTML = peers.length
       ? `<table class="dtable"><thead><tr><th>Address</th><th>Client</th><th>Conn</th><th>State</th><th class="num">↓ total</th><th class="num">↑ total</th></tr></thead><tbody>${peers.map((p) =>
-          `<tr><td>${esc(p.addr)}</td><td>${esc(p.client || "—")}</td><td>${esc(p.kind || "—")}</td><td>${esc(p.state || "")}</td><td class="num">${bytes(p.down)}</td><td class="num">${bytes(p.up)}</td></tr>`).join("")}</tbody></table>`
+          `<tr><td title="${esc(p.place || "")}">${flagHtml(p.code)}${esc(p.addr)}</td><td>${esc(p.client || "—")}</td><td>${esc(p.kind || "—")}</td><td>${esc(p.state || "")}</td><td class="num">${bytes(p.down)}</td><td class="num">${bytes(p.up)}</td></tr>`).join("")}</tbody></table>`
       : '<p class="muted">No connected peers.</p>';
   } catch (e) { showError(e); }
 }

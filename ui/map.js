@@ -228,8 +228,8 @@ function draw() {
     const r = idle ? 3 : d.radius(c.down + c.up);
     const dot = el("circle", { class: "map-node" + (idle ? " idle" : ""), cx: c.xy[0], cy: c.xy[1], r, fill: idle ? "" : color }, nodes);
     dot.__countries = new Set(c.spots.map((s) => s.country));
-    const names = c.spots.map(placeName);
-    hover(dot, () => `<h4>${esc(names.slice(0, 3).join(" · "))}${names.length > 3 ? ` +${names.length - 3}` : ""}</h4>
+    const names = c.spots.map((s) => flagHtml(s.code) + esc(placeName(s)));
+    hover(dot, () => `<h4>${names.slice(0, 3).join(" · ")}${names.length > 3 ? ` +${names.length - 3}` : ""}</h4>
       <div class="row">Peers <b>${c.peers}</b></div>
       <div class="row">Download <b>${c.down >= d.idle ? d.fmt(c.down) : "—"}</b></div>
       <div class="row">Upload <b>${c.up >= d.idle ? d.fmt(c.up) : "—"}</b></div>`);
@@ -242,7 +242,7 @@ function draw() {
     if (!xy) continue;
     const r = Math.min(14, d.radius(s.amount) * 0.8 + 0.5);
     const sq = el("rect", { class: "map-node", x: xy[0] - r, y: xy[1] - r, width: 2 * r, height: 2 * r, rx: 3, fill: "var(--bw-direct)" }, nodes);
-    hover(sq, () => `<h4>${esc(s.name)}</h4><div class="row">Server <b>${esc(placeName(s))}</b></div><div class="row">Download <b>${d.fmt(s.amount)}</b></div>`);
+    hover(sq, () => `<h4>${esc(s.name)}</h4><div class="row">Server <b>${flagHtml(s.code)}${esc(placeName(s))}</b></div><div class="row">Download <b>${d.fmt(s.amount)}</b></div>`);
   }
   if (home) {
     const [hx, hy] = proj(home);
@@ -273,7 +273,7 @@ function table() {
   const by = new Map();
   for (const s of d.spots) {
     const name = s.country || "Unknown";
-    const c = by.get(name) || { name, peers: 0, down: 0, up: 0, lands: new Set() };
+    const c = by.get(name) || { name, code: s.code, peers: 0, down: 0, up: 0, lands: new Set() };
     c.peers += s.peers; c.down += s.down; c.up += s.up;
     const land = landAt(s.lon, s.lat);
     if (land) c.lands.add(land);
@@ -289,7 +289,7 @@ function table() {
   $("map-empty").textContent = d.none;
   const body = $("map-countries");
   body.innerHTML = rows.map((r, i) => `<tr data-i="${i}">
-    <td><div class="name">${esc(r.name)}<div class="map-bar" style="width:${Math.max(6, ((r.down + r.up) / max) * 100)}%">
+    <td><div class="name"><span>${flagHtml(r.code)}${esc(r.name)}</span><div class="map-bar" style="width:${Math.max(6, ((r.down + r.up) / max) * 100)}%">
       ${r.down >= d.idle ? `<span style="flex:${r.down};background:var(--bw-torrent-down)"></span>` : ""}
       ${r.up >= d.idle ? `<span style="flex:${r.up};background:var(--bw-torrent-up)"></span>` : ""}</div></div></td>
     <td class="num">${r.peers}</td><td class="num">${r.down >= d.idle ? d.fmt(r.down) : "—"}</td><td class="num">${r.up >= d.idle ? d.fmt(r.up) : "—"}</td></tr>`).join("");
@@ -302,7 +302,7 @@ function table() {
     tr.addEventListener("mouseleave", () => svg.querySelectorAll(".hl").forEach((n) => n.classList.remove("hl")));
   }
   $("map-server-list").innerHTML = d.servers.length
-    ? d.servers.map((s) => `<div class="map-srv"><i></i>${esc(s.name)} <span class="where">${esc(placeName(s))}</span><span class="spd">${d.fmt(s.amount)}</span></div>`).join("")
+    ? d.servers.map((s) => `<div class="map-srv"><i></i>${esc(s.name)} <span class="where">${flagHtml(s.code)}${esc(placeName(s))}</span><span class="spd">${d.fmt(s.amount)}</span></div>`).join("")
     : `<div class="map-srv none">${d.noServer}</div>`;
 }
 
