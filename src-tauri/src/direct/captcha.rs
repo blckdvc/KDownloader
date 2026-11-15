@@ -119,27 +119,13 @@ const START_WORKUPLOAD_ARCHIVE: &str = r#"(() => {
 })();"#;
 
 /// datanodes: presses the first page's Continue button once the site enables
-/// it, and on the second page starts the download when the countdown and the
-/// site's check have both passed. The site answers with the file's address,
-/// which is reported instead of being opened here.
+/// it. On the second page, once the countdown is over and the site's check
+/// has passed, it asks for the file as the page's Free Download button does,
+/// and reports the address the site answers with. The button itself isn't
+/// pressed: the site's ad script swallows clicks until its tab has opened,
+/// and this window opens none.
 const START_DATANODES: &str = r#"(() => {
   if (window.top !== window.self) return;
-  const nativeFetch = window.fetch;
-  window.fetch = async function (input, init) {
-    const answer = await nativeFetch.apply(this, arguments);
-    const headers = new Headers((init && init.headers) || {});
-    if (!headers.has("X-Dn-Dl")) return answer;
-    try {
-      const body = await answer.clone().json();
-      if (body && body.url) {
-        location.href = "https://kdownloader.invalid/file#" + encodeURIComponent(decodeURIComponent(body.url));
-        return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
-      }
-    } catch (_) {}
-    return answer;
-  };
-  let pressed = false;
-  let started = 0;
   // What the page shows goes to the app's debug log, when it changes.
   let told = "";
   const tell = (state) => {
@@ -150,6 +136,42 @@ const START_DATANODES: &str = r#"(() => {
     frame.src = "https://kdownloader.invalid/debug#" + encodeURIComponent(state);
     document.documentElement.appendChild(frame);
     setTimeout(() => frame.remove(), 1000);
+  };
+  // The second page's settings, read before the page's script replaces them.
+  let asked = null;
+  const read = () => {
+    const tag = document.querySelector("download-countdown");
+    if (!tag || asked) return;
+    const get = (name) => tag.getAttribute(name) || "";
+    asked = {
+      code: get("code"), rand: get("rand"), referer: get("referer"), free: get("free-method"),
+      premium: get("premium-method"), token: get("dl-token"),
+      ready: Date.now() + (Number(get(":countdown")) + 1) * 1000,
+    };
+  };
+  new MutationObserver(read).observe(document, { childList: true, subtree: true });
+  let pressed = false;
+  let sent = false;
+  const send = async (check) => {
+    const form = new FormData();
+    form.append("op", "download2");
+    form.append("id", asked.code);
+    form.append("rand", asked.rand);
+    form.append("referer", asked.referer);
+    form.append("method_free", asked.free);
+    form.append("method_premium", asked.premium);
+    form.append("g_captch__a", "1");
+    if (asked.token) form.append("dl_token", asked.token);
+    form.append("cf-turnstile-response", check);
+    try {
+      const answer = await fetch("", { method: "POST", body: form, headers: { "X-Dn-Dl": "1" }, redirect: "manual" });
+      const text = await answer.text();
+      tell(`answer status=${answer.status} body=${text.slice(0, 160)}`);
+      const body = JSON.parse(text);
+      if (body.url) location.href = "https://kdownloader.invalid/file#" + encodeURIComponent(decodeURIComponent(body.url));
+    } catch (e) {
+      tell(`no answer: ${e}`);
+    }
   };
   const step = () => {
     const form = document.getElementById("downloadForm");
@@ -163,18 +185,11 @@ const START_DATANODES: &str = r#"(() => {
       HTMLFormElement.prototype.submit.call(form);
       return;
     }
-    // Second page: the countdown starts the download by itself, unless the
-    // site's check wasn't passed yet when it ended. Then the Free Download
-    // button is pressed once the check has passed.
-    const passed = document.querySelector('[name="cf-turnstile-response"]');
-    const buttons = [...document.querySelectorAll("button")].filter((b) => b.offsetParent && !b.disabled).map((b) => b.textContent.trim().slice(0, 30));
-    tell(`first=${!!first} check=${passed ? (passed.value ? "passed" : "waiting") : "none"} buttons=${buttons.filter(Boolean).join("|")}`);
-    if (passed && passed.value && Date.now() - started > 5000) {
-      const start = [...document.querySelectorAll("button")].find((b) => /^\s*free download/i.test(b.textContent) && !b.disabled && b.offsetParent);
-      if (start) {
-        started = Date.now();
-        start.click();
-      }
+    const check = document.querySelector('[name="cf-turnstile-response"]');
+    tell(`first=${!!first} second=${!!asked} check=${check ? (check.value ? "passed" : "waiting") : "none"} sent=${sent}`);
+    if (asked && !sent && check && check.value && Date.now() > asked.ready) {
+      sent = true;
+      send(check.value);
     }
   };
   setInterval(step, 500);
