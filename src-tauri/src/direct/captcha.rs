@@ -6,9 +6,9 @@ use super::engine::Engine;
 use super::links;
 use percent_encoding::percent_decode_str;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::webview::{DownloadEvent, NewWindowResponse};
 use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder};
@@ -86,13 +86,36 @@ const START_WORKUPLOAD: &str = r#"(() => {
   if (window.top !== window.self) return;
   const key = "kdownloader-started:" + location.pathname;
   const start = () => {
-    const button = document.querySelector('a[href*="/start/"]');
+    // A file's button goes to /start/<id>, an archive's to /archive/<id>/start.
+    const button = document.querySelector('a[href*="/start/"], a[href$="/start"]');
     if (!button || sessionStorage.getItem(key)) return;
     sessionStorage.setItem(key, "1");
     location.href = button.href;
   };
   new MutationObserver(start).observe(document, { childList: true, subtree: true });
   addEventListener("DOMContentLoaded", start);
+})();"#;
+
+/// workupload: an archive's start page downloads its files one after the
+/// other, waiting for each to finish. This asks for every file's address at
+/// once and hands them over, then says it's done.
+const START_WORKUPLOAD_ARCHIVE: &str = r#"(() => {
+  if (window.top !== window.self || !/^\/archive\/[^/]+\/start\/?$/.test(location.pathname)) return;
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+  addEventListener("DOMContentLoaded", async () => {
+    const keys = (Array.isArray(window.kas) ? window.kas : []).map((k) => String(k).split("_")[0]).filter(Boolean);
+    if (!keys.length) return;
+    // The page's own loop looks this name up before each file: it stops here.
+    window.downloadArchive = () => {};
+    const files = await Promise.all(keys.map((key) =>
+      fetch(`/api/file/getDownloadServer/${key}`).then((r) => r.json()).then((j) => j.data.url).catch(() => null)));
+    for (const file of files) {
+      if (!file) continue;
+      location.href = file;
+      await pause(400);
+    }
+    location.href = "https://kdownloader.invalid/archive-done";
+  });
 })();"#;
 
 /// A page's Click'n'Load button posts its encrypted links to the local port, which
@@ -347,9 +370,27 @@ fn on_browser_download(app: AppHandle, label: String, source: String, url: Strin
     }
 }
 
+/// The files a page window has handed over. A page gives one, and its window
+/// closes with it; a workupload archive gives several, then says it's done.
+#[derive(Default)]
+struct Found {
+    archive: bool,
+    seen: Mutex<HashSet<String>>,
+    /// Files being queued, which still need the window's session.
+    pending: AtomicUsize,
+    done: AtomicBool,
+}
+
+impl Found {
+    /// Whether the window has nothing left to give.
+    fn finished(&self) -> bool {
+        (!self.archive || self.done.load(Ordering::SeqCst)) && self.pending.load(Ordering::SeqCst) == 0
+    }
+}
+
 /// The page window found the file's own address: the queue downloads it, with
-/// resume and several connections, and the window closes.
-async fn on_file_found(app: AppHandle, label: String, source: String, file: Url) {
+/// resume and several connections, and the window closes after its last file.
+async fn on_file_found(app: AppHandle, label: String, source: String, file: Url, found: Arc<Found>) {
     tracing::info!("page window found the file of {source}");
     // workupload serves it only with the session that passed its check. The
     // window's cookies are read whole: asking for one address misses those set
@@ -371,11 +412,13 @@ async fn on_file_found(app: AppHandle, label: String, source: String, file: Url)
         })
         .filter(|c| !c.is_empty());
     tracing::info!("page window session for {host}: {}", if cookie.is_some() { "found" } else { "none" });
-    match app.state::<Engine>().add_file(file.as_str(), cookie).await {
+    let added = app.state::<Engine>().add_file(file.as_str(), cookie).await;
+    found.pending.fetch_sub(1, Ordering::SeqCst);
+    match added {
         Ok(()) => {
             let _ = app.emit("page-downloaded", &source);
-            if let Some(window) = app.get_webview_window(&label) {
-                let _ = window.close();
+            if found.finished() {
+                close_window(&app, &label);
             }
         }
         Err(e) => {
@@ -383,6 +426,12 @@ async fn on_file_found(app: AppHandle, label: String, source: String, file: Url)
             show_window(&app, &label);
             let _ = app.emit("dd-error", format!("The page window's file couldn't be queued: {e}"));
         }
+    }
+}
+
+fn close_window(app: &AppHandle, label: &str) {
+    if let Some(window) = app.get_webview_window(label) {
+        let _ = window.close();
     }
 }
 
@@ -421,6 +470,7 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
     let workupload = page.host_str().is_some_and(|h| h.trim_start_matches("www.") == "workupload.com");
     if workupload {
         script.push_str(START_WORKUPLOAD);
+        script.push_str(START_WORKUPLOAD_ARCHIVE);
     }
     if !browser_host {
         let hosters = app.state::<Engine>().accounts().hoster_domains().await;
@@ -474,6 +524,7 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
             }
         });
     }
+    let found = Arc::new(Found { archive: workupload && nav_page.path().starts_with("/archive/"), ..Default::default() });
     builder
         .initialization_script(&script)
         .on_navigation(move |target| {
@@ -481,8 +532,19 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
             if browser_host {
                 tracing::debug!("page window navigates to {}{}", target.host_str().unwrap_or(target.scheme()), target.path());
                 if links::is_buzzheavier_file(target) || links::is_workupload_file(target) {
-                    let job = on_file_found(nav_app.clone(), nav_label.clone(), nav_source.clone(), target.clone());
-                    tauri::async_runtime::spawn(job);
+                    // The archive page may hand a file over twice.
+                    if found.seen.lock().unwrap().insert(target.path().to_string()) {
+                        found.pending.fetch_add(1, Ordering::SeqCst);
+                        let job = on_file_found(nav_app.clone(), nav_label.clone(), nav_source.clone(), target.clone(), found.clone());
+                        tauri::async_runtime::spawn(job);
+                    }
+                    return false;
+                }
+                if target.host_str() == Some(REPORT_HOST) {
+                    found.done.store(true, Ordering::SeqCst);
+                    if found.finished() {
+                        close_window(&nav_app, &nav_label);
+                    }
                     return false;
                 }
                 return matches!(target.scheme(), "http" | "https" | "about" | "blob" | "data");
