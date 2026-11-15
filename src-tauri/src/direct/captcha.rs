@@ -86,7 +86,8 @@ const START_WORKUPLOAD: &str = r#"(() => {
   if (window.top !== window.self) return;
   const key = "kdownloader-started:" + location.pathname;
   const start = () => {
-    const button = document.querySelector('a[href*="/start/"]');
+    // A file's button goes to /start/<id>, an archive's to /archive/<id>/start.
+    const button = document.querySelector('a[href*="/start/"], a[href$="/start"]');
     if (!button || sessionStorage.getItem(key)) return;
     sessionStorage.setItem(key, "1");
     location.href = button.href;
