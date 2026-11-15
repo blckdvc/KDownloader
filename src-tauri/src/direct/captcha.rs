@@ -567,6 +567,8 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
     let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(page))
         .title(if browser_host { "Start the download" } else { "Solve the captcha" })
         .inner_size(620.0, 520.0)
+        // It needs the user: it stays above the other windows until it closes.
+        .always_on_top(true)
         // workupload's check needs no one: its window stays hidden unless it
         // gets stuck.
         .visible(!workupload);
