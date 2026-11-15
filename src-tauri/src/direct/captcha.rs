@@ -118,6 +118,68 @@ const START_WORKUPLOAD_ARCHIVE: &str = r#"(() => {
   });
 })();"#;
 
+/// datanodes: presses the first page's Continue button once the site enables
+/// it, and on the second page starts the download when the countdown and the
+/// site's check have both passed. The site answers with the file's address,
+/// which is reported instead of being opened here.
+const START_DATANODES: &str = r#"(() => {
+  if (window.top !== window.self) return;
+  const nativeFetch = window.fetch;
+  window.fetch = async function (input, init) {
+    const answer = await nativeFetch.apply(this, arguments);
+    const headers = new Headers((init && init.headers) || {});
+    if (!headers.has("X-Dn-Dl")) return answer;
+    try {
+      const body = await answer.clone().json();
+      if (body && body.url) {
+        location.href = "https://kdownloader.invalid/file#" + encodeURIComponent(decodeURIComponent(body.url));
+        return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+    } catch (_) {}
+    return answer;
+  };
+  let pressed = false;
+  let started = 0;
+  // What the page shows goes to the app's debug log, when it changes.
+  let told = "";
+  const tell = (state) => {
+    if (state === told) return;
+    told = state;
+    const frame = document.createElement("iframe");
+    frame.style.display = "none";
+    frame.src = "https://kdownloader.invalid/debug#" + encodeURIComponent(state);
+    document.documentElement.appendChild(frame);
+    setTimeout(() => frame.remove(), 1000);
+  };
+  const step = () => {
+    const form = document.getElementById("downloadForm");
+    const first = form && form.querySelector('input[name="op"][value="download1"]');
+    const button = document.getElementById("method_free");
+    if (first && button && !button.disabled && !pressed) {
+      pressed = true;
+      const field = document.createElement("input");
+      field.type = "hidden"; field.name = "method_free"; field.value = button.value || "Free Download >>";
+      form.appendChild(field);
+      HTMLFormElement.prototype.submit.call(form);
+      return;
+    }
+    // Second page: the countdown starts the download by itself, unless the
+    // site's check wasn't passed yet when it ended. Then the Free Download
+    // button is pressed once the check has passed.
+    const passed = document.querySelector('[name="cf-turnstile-response"]');
+    const buttons = [...document.querySelectorAll("button")].filter((b) => b.offsetParent && !b.disabled).map((b) => b.textContent.trim().slice(0, 30));
+    tell(`first=${!!first} check=${passed ? (passed.value ? "passed" : "waiting") : "none"} buttons=${buttons.filter(Boolean).join("|")}`);
+    if (passed && passed.value && Date.now() - started > 5000) {
+      const start = [...document.querySelectorAll("button")].find((b) => /^\s*free download/i.test(b.textContent) && !b.disabled && b.offsetParent);
+      if (start) {
+        started = Date.now();
+        start.click();
+      }
+    }
+  };
+  setInterval(step, 500);
+})();"#;
+
 /// A page's Click'n'Load button posts its encrypted links to the local port, which
 /// a secure page may be refused. This catches that post, whichever way the page
 /// sends it, and reports what it carries, so the port isn't needed.
@@ -467,6 +529,10 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
     if links::is_buzzheavier(&url) {
         script.push_str(START_BUZZHEAVIER);
     }
+    let datanodes = links::is_datanodes(&url);
+    if datanodes {
+        script.push_str(START_DATANODES);
+    }
     let workupload = page.host_str().is_some_and(|h| h.trim_start_matches("www.") == "workupload.com");
     if workupload {
         script.push_str(START_WORKUPLOAD);
@@ -540,7 +606,24 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
                     }
                     return false;
                 }
+                if target.host_str() == Some(REPORT_HOST) && target.path() == "/debug" {
+                    tracing::debug!("page window state: {}", percent_decode_str(target.fragment().unwrap_or("")).decode_utf8_lossy());
+                    return false;
+                }
                 if target.host_str() == Some(REPORT_HOST) {
+                    // datanodes reports its file's address.
+                    let file = (target.path() == "/file")
+                        .then(|| percent_decode_str(target.fragment().unwrap_or("")).decode_utf8_lossy().into_owned())
+                        .and_then(|f| Url::parse(&f).ok())
+                        .filter(|f| matches!(f.scheme(), "http" | "https"));
+                    if let Some(file) = file {
+                        if found.seen.lock().unwrap().insert(file.path().to_string()) {
+                            found.pending.fetch_add(1, Ordering::SeqCst);
+                            let job = on_file_found(nav_app.clone(), nav_label.clone(), nav_source.clone(), file, found.clone());
+                            tauri::async_runtime::spawn(job);
+                        }
+                        return false;
+                    }
                     found.done.store(true, Ordering::SeqCst);
                     if found.finished() {
                         close_window(&nav_app, &nav_label);
@@ -566,6 +649,10 @@ pub async fn dd_open_captcha(app: AppHandle, url: String) -> Result<(), String> 
         })
         .on_new_window(move |target, _| {
             if browser_host {
+                // datanodes only opens tabs for its ads.
+                if datanodes {
+                    return NewWindowResponse::Deny;
+                }
                 // A download link opening a tab: follow it here, where downloads are caught.
                 if matches!(target.scheme(), "http" | "https") {
                     if let Some(window) = win_app.get_webview_window(&win_label) {
