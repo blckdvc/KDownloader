@@ -501,9 +501,18 @@ async fn quitting_during_extraction_doesnt_download_again() {
     let fx = fixture();
     add(&fx.engine, &format!("{}/a.bin", server.base)).await;
     let item = wait_done(&fx.engine).await;
-    sleep(Duration::from_millis(100)).await;
     let path = fx.dir.join("queue.json");
-    let saved = std::fs::read_to_string(&path).unwrap().replace("\"status\":\"done\"", "\"status\":\"extracting\"");
+    // The queue is saved a moment after the download ends.
+    let mut saved = String::new();
+    for _ in 0..100 {
+        saved = std::fs::read_to_string(&path).unwrap_or_default();
+        if saved.contains("\"status\":\"done\"") {
+            break;
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+    assert!(saved.contains("\"status\":\"done\""), "the finished download was never saved");
+    let saved = saved.replace("\"status\":\"done\"", "\"status\":\"extracting\"");
     std::fs::write(&path, saved).unwrap();
     let reborn = Engine::new(path, fx.dir.join("dl"));
     let loaded = reborn.list().remove(0);
