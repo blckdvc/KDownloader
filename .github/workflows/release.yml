@@ -1,6 +1,6 @@
 name: Release
 
-# Build KDownloader on macOS, Windows and Linux and publish a draft GitHub Release
+# Build KDownloader on macOS, Windows and Linux and fill a draft GitHub Release
 # with the .dmg/.app, the Windows installer, the .deb and .AppImage, and the macOS
 # local-signing helper script attached. Trigger by pushing a version
 # tag (e.g. `git tag v0.1.0 && git push origin v0.1.0`) or run it manually.
@@ -13,7 +13,36 @@ permissions:
   contents: write
 
 jobs:
+  # One draft for the three builds. When each build made its own, two that
+  # started together ended up with a draft each.
+  draft:
+    runs-on: ubuntu-22.04
+    outputs:
+      id: ${{ steps.draft.outputs.id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create the draft release, or reuse the one this tag has
+        id: draft
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          find_draft() {
+            gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+              --jq "[.[] | select(.tag_name == \"$TAG\")][0].id // empty"
+          }
+          id=$(find_draft)
+          if [ -z "$id" ]; then
+            gh release create "$TAG" --draft --title "KDownloader $TAG" \
+              --notes-file .github/release-body.md
+            id=$(find_draft)
+          fi
+          test -n "$id"
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
   release:
+    needs: draft
     strategy:
       fail-fast: false
       matrix:
@@ -38,7 +67,7 @@ jobs:
           workspaces: src-tauri
 
       # Frontend is plain static files in ui/ (no npm build step needed).
-      - name: Build app + create draft release
+      - name: Build app + upload to the draft release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -46,26 +75,11 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
+          # The draft made by the job above: the three builds upload to it.
+          releaseId: ${{ needs.draft.outputs.id }}
+          # Not to create a release, since releaseId is set: the update
+          # addresses in latest.json are built from it.
           tagName: ${{ github.ref_name }}
-          releaseName: "KDownloader ${{ github.ref_name }}"
-          releaseBody: |
-            ### Install on Windows
-            Run `KDownloader_…_x64-setup.exe`.
-
-            ### Install on Linux
-            Install the `.deb` (Debian, Ubuntu), or make the `.AppImage` executable and run it.
-            ZIP and 7z extraction needs `bsdtar` (package `libarchive-tools`), which the `.deb` installs.
-
-            ### Install on macOS
-            1. Mount the `.dmg` and drag **KDownloader** to Applications.
-            2. Download `kdownloader-macos-sign.command` (attached below) and run it once:
-               `./kdownloader-macos-sign.command`
-               This locally signs the app so macOS lets it use the local network
-               (needed for automatic UPnP port-forwarding). See the README for why.
-            3. Launch KDownloader, then allow it under
-               System Settings → Privacy & Security → Local Network.
-          releaseDraft: true
-          prerelease: false
 
       - name: Attach the macOS signing script
         if: runner.os == 'macOS'
