@@ -8,7 +8,7 @@ One small native app does what usually takes three: a BitTorrent client, a downl
 debrid front-end. It's named as a nod to JDownloader, without the Java.
 
 - **Torrents** at Transmission weight, on the [`librqbit`](https://crates.io/crates/librqbit) engine
-- **Direct Download** through nine premium debrid services, or straight from nine free hosts:
+- **Direct Download** through nine premium debrid services, or straight from ten free hosts:
   MEGA, Google Drive, Dropbox, MediaFire, WeTransfer, pixeldrain and more. It even gets past the
   browser checks that hosts put in front of downloaders.
 - **Hands-free**: links are checked, grouped into packages, downloaded over several connections
@@ -130,7 +130,8 @@ the first one that works is used.
 | **Google Drive** | `drive.google.com/file/d/…`, `drive.google.com/open?id=…`, `…/uc?id=…` | Directly, with resume and several connections. A large file goes past Drive's virus-scan warning by itself. Folders aren't handled. |
 | **Dropbox** | `dropbox.com/scl/fi/…`, `dropbox.com/s/…`, folders `…/scl/fo/…` | Directly, with resume for files. A shared folder comes as one ZIP. |
 | **buzzheavier** | `buzzheavier.com/…`, `bzzhr.co/…` | A small window passes the site's browser check and starts the download by itself. The file then goes to the queue, with resume. |
-| **workupload** | `workupload.com/file/…` | A hidden window passes the site's browser check and finds the file, which then goes to the queue. The window only shows up if the check gets stuck. |
+| **workupload** | `workupload.com/file/…`, archives `workupload.com/archive/…` | A hidden window passes the site's browser check and finds the file, which then goes to the queue. An archive sends all its files. The window only shows up if the check gets stuck. |
+| **datanodes** | `datanodes.to/…` | A small window waits out the site's countdown and asks for the file, which then goes to the queue, with resume and several connections. The site's check may ask you for one click. |
 
 The addresses these services hand out expire, so each download asks for a fresh one. Their
 files appear in the queue and are extracted like the others. Other hosts need one of the
