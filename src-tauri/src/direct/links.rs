@@ -88,7 +88,7 @@ pub fn is_file_host(url: &str) -> bool {
 
 /// Hosts that check for a real browser before showing a file. Their page opens
 /// in a window, which downloads the file itself into the queue's folder.
-const BROWSER_HOSTS: [&str; 3] = ["workupload.com", "buzzheavier.com", "bzzhr.co"];
+const BROWSER_HOSTS: [&str; 4] = ["workupload.com", "buzzheavier.com", "bzzhr.co", "datanodes.to"];
 
 /// The page window's user agent: Safari's, which sites expect from a Mac.
 pub const BROWSER_UA: &str =
@@ -107,6 +107,14 @@ pub fn is_buzzheavier(url: &str) -> bool {
     let Ok(u) = Url::parse(url) else { return false };
     let host = u.host_str().unwrap_or("").to_ascii_lowercase();
     ["buzzheavier.com", "bzzhr.co"].iter().any(|d| host == *d || host.ends_with(&format!(".{d}")))
+}
+
+/// A datanodes page: its window waits out the countdown, the visitor passes
+/// the site's check if it asks, and the file's address goes to the queue.
+pub fn is_datanodes(url: &str) -> bool {
+    let Ok(u) = Url::parse(url) else { return false };
+    let host = u.host_str().unwrap_or("").to_ascii_lowercase();
+    host == "datanodes.to" || host.ends_with(".datanodes.to")
 }
 
 /// workupload's file server, where its start page sends the window.
@@ -280,6 +288,13 @@ mod tests {
         assert!(!is_buzzheavier("https://workupload.com/file/x"));
         assert!(is_buzzheavier_file(&Url::parse("https://ts.buzzheavier.com/d/f8k4y7jdmmyb?v=x").unwrap()));
         assert!(!is_buzzheavier_file(&Url::parse("https://buzzheavier.com/f8k4y7jdmmyb").unwrap()));
+    }
+
+    #[test]
+    fn datanodes_files_open_in_a_browser() {
+        assert!(needs_browser("https://datanodes.to/i0pnf3rgn3bc"));
+        assert!(is_datanodes("https://datanodes.to/i0pnf3rgn3bc/file.rar"));
+        assert!(!is_datanodes("https://notdatanodes.to/x"));
     }
 
     #[test]
