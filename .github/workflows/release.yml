@@ -34,9 +34,10 @@ jobs:
           }
           id=$(find_draft)
           if [ -z "$id" ]; then
-            gh release create "$TAG" --draft --title "KDownloader $TAG" \
-              --notes-file .github/release-body.md
-            id=$(find_draft)
+            # Take the id from the answer: the list doesn't show a new draft at once.
+            id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" \
+              -f tag_name="$TAG" -f name="KDownloader $TAG" -F draft=true \
+              -F body=@.github/release-body.md --jq .id)
           fi
           test -n "$id"
           echo "id=$id" >> "$GITHUB_OUTPUT"
