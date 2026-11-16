@@ -215,6 +215,7 @@ function renderTable() {
   $("empty").style.display = torrents.length ? "none" : "flex";
   const n = rows.length;
   setText($("count"), `${n} torrent${n === 1 ? "" : "s"}${torrents.length !== n ? ` / ${torrents.length}` : ""}`);
+  $("clear-errored").disabled = !erroredIds().length;
 
   // sort indicators
   document.querySelectorAll("thead th[data-sort]").forEach((th) => {
@@ -283,6 +284,9 @@ async function removeNow(ids, del) {
   } catch (e) { showError(e); }
 }
 $("tb-remove").addEventListener("click", () => openRemoveModal());
+// Like "Clear completed" in Direct Download: the torrents go, their files stay.
+const erroredIds = () => torrents.filter((t) => metrics(t).kind === "error").map((t) => t.id);
+$("clear-errored").addEventListener("click", () => removeNow(erroredIds(), false));
 // The menu entry already says what happens, so only a first-time user is asked.
 function confirmTrash(ids) {
   if (rememberedRemoval()) removeNow(ids, true);
