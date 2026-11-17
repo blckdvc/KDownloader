@@ -14,5 +14,6 @@ KDownloader's patches, to reapply on any update:
 - `dht`: a failed UDP receive is logged and retried instead of ending the DHT for the whole session.
 - `librqbit`: `ManagedTorrent::stats_brief` is `stats` without the per-file progress.
 - `librqbit`: `ManagedTorrentShared::ratelimits` holds each torrent's limits, shared with its live state, so they can change while it runs and survive pause/resume.
+- `librqbit`: the incoming-connection listener no longer panics when a peer is refused while its limit of pending checks is reached, and after a failed accept it waits 1 s (not 10 s) while the pending checks go on. Test: `tests/listener.rs`.
 
 `desktop/src-tauri` is removed from the workspace members in `Cargo.toml`.

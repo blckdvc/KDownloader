@@ -1017,6 +1017,9 @@ impl Session {
         ))
     }
 
+    /// How long the listener waits after a failed accept before it tries again.
+    const ACCEPT_RETRY_DELAY: Duration = Duration::from_secs(1);
+
     async fn task_listener<A: Accept>(
         self: Arc<Self>,
         l: A,
@@ -1025,10 +1028,15 @@ impl Session {
         let mut futs = FuturesUnordered::new();
         let session = Arc::downgrade(&self);
         drop(self);
+        // With a limit of 0 nothing could ever be accepted.
+        let max_pending = max_pending_incoming_handshake_checks.max(1);
+        // After a failed accept, when to try again. The pending checks go on meanwhile.
+        let mut accept_at = tokio::time::Instant::now();
 
         loop {
+            let backing_off = tokio::time::Instant::now() < accept_at;
             tokio::select! {
-                r = l.accept(), if futs.len() < max_pending_incoming_handshake_checks => {
+                r = l.accept(), if !backing_off && futs.len() < max_pending => {
                     match r {
                         Ok((addr, (read, write))) => {
                             trace!("accepted connection from {addr}");
@@ -1046,18 +1054,24 @@ impl Session {
                         Err(e) => {
                             warn!("error accepting: {e:#}");
                             // Whatever is the reason, ensure we are not stuck trying to
-                            // accept indefinitely.
-                            tokio::time::sleep(Duration::from_secs(10)).await;
-                            continue
+                            // accept indefinitely. macOS fails this way each time a peer
+                            // gives up before its turn, so the wait is short.
+                            accept_at = tokio::time::Instant::now() + Self::ACCEPT_RETRY_DELAY;
                         }
                     }
                 },
-                Some(Ok((live, checked))) = futs.next(), if !futs.is_empty() => {
-                    let (addr, kind) = (checked.addr, checked.kind);
-                    if let Err(e) = live.add_incoming_peer(checked) {
-                        warn!(?addr, ?kind, "error handing over incoming connection: {e:#}");
+                // A failed check must be matched here, not in the pattern: when the
+                // pattern doesn't match and accepting is off, select! has no branch
+                // left and panics.
+                r = futs.next(), if !futs.is_empty() => {
+                    if let Some(Ok((live, checked))) = r {
+                        let (addr, kind) = (checked.addr, checked.kind);
+                        if let Err(e) = live.add_incoming_peer(checked) {
+                            warn!(?addr, ?kind, "error handing over incoming connection: {e:#}");
+                        }
                     }
                 },
+                _ = tokio::time::sleep_until(accept_at), if backing_off => {},
             }
         }
     }
