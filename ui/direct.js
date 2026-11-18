@@ -600,7 +600,7 @@ const openPage = (p) => call(p.protected ? "dd_open_captcha" : "dd_open_url", { 
 function updateGrabButtons() {
   $("add-selected").disabled = !pickedGrabbed().some(canAdd);
   $("add-all").disabled = !grabbed.some(canAdd);
-  $("clear-grabbed").disabled = grabbed.length === 0;
+  $("clear-grabbed").disabled = $("clear-grabber").disabled = grabbed.length === 0;
   syncToolbar();
 }
 function removeGrabbed(list = pickedGrabbed()) {
@@ -653,7 +653,8 @@ $("grabbed").addEventListener("contextmenu", (e) => {
 });
 $("add-selected").addEventListener("click", () => addGrabbed(pickedGrabbed()));
 $("add-all").addEventListener("click", () => addGrabbed(grabbed));
-$("clear-grabbed").addEventListener("click", () => { grabbed = []; renderGrabbed(); });
+// The same action from the grabber's own bar and from the status bar, which the queue shows too.
+for (const id of ["clear-grabbed", "clear-grabber"]) $(id).addEventListener("click", () => { grabbed = []; renderGrabbed(); });
 
 // ---- settings --------------------------------------------------------------
 function accountStatus(view) {
