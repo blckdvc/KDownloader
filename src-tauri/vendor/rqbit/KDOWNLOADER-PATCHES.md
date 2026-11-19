@@ -10,7 +10,7 @@ KDownloader's patches, to reapply on any update:
 - `librqbit`: `StatsSnapshot::connected_seeds` counts live peers holding every piece.
 
 - `tracker_comms`: log spans show the tracker host only, as private trackers keep a passkey in the URL.
-- `librqbit`: on start, a wanted file with downloaded pieces that has vanished puts the torrent in error instead of redownloading it.
+- `librqbit`: on start, a wanted file with downloaded pieces that has vanished puts the torrent in error instead of redownloading it. The empty files and folders the storage has just recreated for it are removed, the torrent's own folder included.
 - `dht`: a failed UDP receive is logged and retried instead of ending the DHT for the whole session.
 - `librqbit`: `ManagedTorrent::stats_brief` is `stats` without the per-file progress.
 - `librqbit`: `ManagedTorrentShared::ratelimits` holds each torrent's limits, shared with its live state, so they can change while it runs and survive pause/resume.
