@@ -1339,6 +1339,8 @@ mod missing_file_tests {
             _ => String::new(),
         });
         assert!(error.contains("file missing from disk: data.bin"), "{error}");
+        // The storage recreates the file empty to open it; nothing of that may stay.
+        assert!(!dir.join("data.bin").exists(), "an empty data.bin was left behind");
 
         let handle = session.get(id).unwrap();
         session.unpause(&handle).await.unwrap();

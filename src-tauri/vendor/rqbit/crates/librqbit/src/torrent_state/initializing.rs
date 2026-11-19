@@ -101,6 +101,32 @@ impl TorrentStateInitializing {
         })
     }
 
+    /// Removes what the storage has just recreated for a torrent whose data is
+    /// gone: its empty files, then the folders they leave empty, the torrent's
+    /// own folder included. Anything holding data stays.
+    fn remove_empty_leftovers(&self) {
+        let folder = &self.shared.options.output_folder;
+        let mut dirs = std::collections::BTreeSet::new();
+        for fi in self.metadata.file_infos.iter().filter(|fi| !fi.attrs.padding) {
+            let path = folder.join(&fi.relative_filename);
+            if std::fs::metadata(&path).is_ok_and(|m| m.is_file() && m.len() == 0 && fi.len > 0) {
+                let _ = std::fs::remove_file(&path);
+            }
+            dirs.extend(
+                path.ancestors()
+                    .skip(1)
+                    .take_while(|d| d.starts_with(folder))
+                    .map(|d| d.to_path_buf()),
+            );
+        }
+        // Deepest first; remove_dir leaves any folder that still holds something.
+        let mut dirs: Vec<_> = dirs.into_iter().collect();
+        dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+        for dir in dirs {
+            let _ = std::fs::remove_dir(dir);
+        }
+    }
+
     async fn validate_fastresume(
         &self,
         bitv_factory: &dyn BitVFactory,
@@ -228,6 +254,8 @@ impl TorrentStateInitializing {
         if let Some(hp) = have_pieces.as_ref()
             && let Some(file) = self.missing_file(&**hp)
         {
+            let file = file.to_path_buf();
+            self.remove_empty_leftovers();
             anyhow::bail!("file missing from disk: {}", file.display());
         }
 
